@@ -496,8 +496,13 @@ class BackgroundChecker:
         return None
     
     async def send_achievement_notification(self, user_id: int, wallet_address: str, achievement_name: str):
-        """Отправляет уведомление о получении ачивки"""
+        """Отправляет уведомление о получении ачивки (только один раз)"""
         try:
+            # Проверяем, было ли уже отправлено уведомление
+            if self.bot.is_achievement_notification_sent(user_id, wallet_address, achievement_name):
+                print(f"Уведомление о получении ачивки {achievement_name} для адреса {wallet_address} уже было отправлено пользователю {user_id}")
+                return
+            
             message = f"""🎉 Поздравляем!
 
 Ачивка "{achievement_name}" успешно получена для адреса:
@@ -509,6 +514,9 @@ class BackgroundChecker:
                 chat_id=user_id,
                 text=message
             )
+            
+            # Отмечаем, что уведомление было отправлено
+            self.bot.mark_achievement_notification_sent(user_id, wallet_address, achievement_name)
             
             print(f"Отправлено уведомление о получении ачивки {achievement_name} пользователю {user_id}")
             
@@ -573,7 +581,18 @@ class BackgroundChecker:
     async def send_new_addresses_notification(self, waiting_user: WaitingUser, available_count: int):
         """Отправляет уведомление о появлении новых адресов"""
         try:
-            message = f"""🎉 Появились новые адреса!
+            # Получаем язык пользователя
+            user_data = self.bot.users_data.get(waiting_user.user_id)
+            language = user_data.language if user_data else 'ru'
+            
+            if language == 'en':
+                message = f"""🎉 New addresses available!
+
+Now {available_count} addresses are available for subscription.
+You can go to the "Followers" menu and complete the task for address:
+{waiting_user.wallet_address}"""
+            else:
+                message = f"""🎉 Появились новые адреса!
 
 Теперь доступно {available_count} адресов для подписки.
 Вы можете зайти в меню "Followers" и доделать задание для адреса:
@@ -592,7 +611,18 @@ class BackgroundChecker:
     async def send_new_tokens_notification(self, waiting_user: WaitingUser, available_count: int):
         """Отправляет уведомление о появлении новых токенов"""
         try:
-            message = f"""🎉 Появились новые токены!
+            # Получаем язык пользователя
+            user_data = self.bot.users_data.get(waiting_user.user_id)
+            language = user_data.language if user_data else 'ru'
+            
+            if language == 'en':
+                message = f"""🎉 New tokens available!
+
+Now {available_count} tokens are available for purchase.
+You can go to the "Token holders" menu and complete the task for address:
+{waiting_user.wallet_address}"""
+            else:
+                message = f"""🎉 Появились новые токены!
 
 Теперь доступно {available_count} токенов для покупки.
 Вы можете зайти в меню "Token holders" и доделать задание для адреса:

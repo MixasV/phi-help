@@ -1,55 +1,82 @@
 # 🤖 PHI Help Bot
 
-Telegram-бот для помощи с выполнением ачивок в PHI Box - проверка фолловеров и токен-холдеров.
+Telegram bot for helping with PHI Box achievements - checking followers and token holders.
 
-Просто добавьте свои адреса, которые вы используете в проекте (не ключи!), помогите другим пользователям и вам помогут потом в ответ. Честная проверка взаимоподписок и взаимопокупок.
+Simply add your wallet addresses that you use in the project (not private keys!), help other users and they will help you back. Fair verification of mutual subscriptions and mutual token purchases.
 
-## 🚀 Что делает бот
+## 🚀 What the bot does
 
-- **Проверяет фолловеров** - автоматически проверяет количество фолловеров для ваших кошельков
-- **Проверяет токен-холдеров** - отслеживает количество держателей токенов
-- **Управляет ачивками** - помогает выполнять задания по фолловерам и токенам
-- **Хранит ваши данные** - сохраняет адреса кошельков и бордов для удобства
-- **Фоновая проверка** - автоматически мониторит статус ваших досок
+- **Checks followers** - automatically checks follower count for your wallets
+- **Checks token holders** - tracks token holder count
+- **Manages achievements** - helps complete follower and token tasks
+- **Stores your data** - saves wallet addresses and boards for convenience
+- **Background checking** - automatically monitors your board status
 
-## 📱 Как использовать
+## 📱 How to use
 
-1. **Запустите бота** командой `/start`
-2. **Добавьте адреса кошельков** через меню "Мои данные"
-3. **Добавьте борды** для отслеживания
-4. **Проверяйте фолловеров** и **токен-холдеров** через соответствующие разделы
-5. **Получайте уведомления** о выполнении ачивок
+1. **Start the bot** with `/start` command
+2. **Add wallet addresses** through "My Data" menu
+3. **Add boards** for tracking
+4. **Check followers** and **token holders** through respective sections
+5. **Receive notifications** about achievement completion
 
-## 🎮 Основные функции
+## 🎮 Main features
 
-- **Мои данные** - управление кошельками и бордами
-- **Фолловеры** - проверка и выполнение заданий по фолловерам
-- **Token holders** - проверка и выполнение заданий по токен-холдерам
+- **My Data** - manage wallets and boards
+- **Followers** - check and complete follower tasks
+- **Token holders** - check and complete token holder tasks
 
-## ⚙️ Настройка
+## 🌐 Language Support
 
-1. Скопируйте `env.example` в `.env`
-2. Добавьте токен бота и настройки
-3. Запустите `python bot.py`
+The bot supports two languages:
+- 🇷🇺 **Russian** (default for existing users)
+- 🇺🇸 **English** (available via `/language` command)
 
-## 📊 Файлы данных
+New users can choose their preferred language on first start.
 
-- `boards.txt` - список отслеживаемых досок
-- `tokens.txt` - список токенов  
-- `wallets.txt` - список кошельков
-- `users_data.json` - данные пользователей
-- `pending_checks.json` - очередь проверок
+## 📋 Bot Commands
 
-## 🔧 Дополнительные возможности
+- `/start` - Main menu / Главное меню
+- `/my` - My data / Мои данные
+- `/trendsetter` - Execute subscriptions / Выполнить подписки
+- `/tokens` - Buy user tokens / Купить токены пользователей
+- `/language` - Language selection / Выбор языка
 
-- **Фоновая проверка** - автоматический мониторинг досок
-- **API интеграция** - работа с PHI Box API
+## ⚙️ Setup
 
-## 💰 Поддержка проекта
+1. Copy `env.example` to `.env`
+2. Add bot token and settings
+3. Run `python bot.py`
 
-Если бот помог вам и вы хотите, чтобы я добавил больше функций (помощь с выполнением всех ачивок) можете поддержать разработку:
+## 📊 Data files
 
-**EVM сети (Ethereum, BSC, Polygon и др.):**
+- `boards.txt` - list of tracked boards
+- `tokens.txt` - list of tokens
+- `wallets.txt` - list of wallets
+- `users_data.json` - user data
+- `pending_checks.json` - check queue
+
+## 🔧 Additional features
+
+- **Background checking** - automatic board monitoring
+- **API integration** - works with PHI Box API
+- **Multi-language support** - Russian and English
+- **Achievement tracking** - monitors Trendsetter and "They Lovin' It" achievements
+- **Mutual help system** - users help each other complete tasks
+
+## 🎯 How it works
+
+1. **Add your wallet addresses** - the bot will track your achievements
+2. **Get task links** - when you need followers or token holders, the bot provides links
+3. **Help others** - complete tasks for other users to help them
+4. **Get help back** - other users will help you complete your tasks
+5. **Automatic monitoring** - the bot checks your progress and notifies you
+
+## 💰 Project Support
+
+If the bot helped you and you want me to add more features (help with completing all achievements), you can support development:
+
+**EVM networks (Ethereum, BSC, Polygon, etc.):**
 ```
 0xC7f9154a72524097B1323961F584f7047b875271
 ```
@@ -59,10 +86,10 @@ Telegram-бот для помощи с выполнением ачивок в PH
 H5kV62pdgtyLUEfJ3N51o5E2HrhEtRcNRjngws697feL
 ```
 
-## 📝 Лицензия
+## 📝 License
 
-Проект распространяется свободно для личного использования.
+The project is distributed freely for personal use.
 
 ---
 
-*Создано для сообщества PHI Box пользователей* 🎯
+*Created for the PHI Box community* 🎯

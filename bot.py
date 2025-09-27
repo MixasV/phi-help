@@ -20,6 +20,12 @@ class UserData:
     board_addresses: List[str]
     completed_followers_tasks: int = 0  # Количество выполненных заданий по фолловерам
     completed_token_tasks: int = 0      # Количество выполненных заданий по токенам
+    sent_achievement_notifications: Dict[str, List[str]] = None  # Отправленные уведомления {achievement_name: [wallet_addresses]}
+    language: str = 'ru'  # Язык пользователя (ru/en)
+    
+    def __post_init__(self):
+        if self.sent_achievement_notifications is None:
+            self.sent_achievement_notifications = {}
 
 class PHIBot:
     def __init__(self):
@@ -43,6 +49,151 @@ class PHIBot:
         
         # Создаем файлы данных если их нет
         self.ensure_data_files()
+        
+        # Инициализируем переводы
+        self.translations = self.init_translations()
+    
+    def init_translations(self) -> Dict[str, Dict[str, str]]:
+        """Инициализирует словари переводов"""
+        return {
+            'ru': {
+                'welcome': '🤖 Добро пожаловать в PHI Helper Bot!\n\nВы можете добавить свои адреса кошельков для выполнения ачивок, а также свои борды.\n\n📊 Ваша статистика:\n• Адресов кошельков: {wallet_count}\n• Бордов: {board_count}\n\nВыберите действие:',
+                'my_data': 'Мои данные',
+                'followers': 'Фолловеры',
+                'token_holders': 'Token holders',
+                'back': '← Назад',
+                'main_menu': '← Главное меню',
+                'add_wallets': 'Добавить адреса',
+                'add_boards': 'Добавить борды',
+                'cancel': 'Отмена',
+                'done': '✅ Готово',
+                'refresh': '🔄 Обновить',
+                'continue': 'Продолжить',
+                'language_selection': '🌐 Выберите язык / Choose language:',
+                'russian': '🇷🇺 Русский',
+                'english': '🇺🇸 English',
+                'language_changed': '✅ Язык изменен на: {language}',
+                'my_data_title': '📋 Мои данные\n\nАдресов кошельков: {wallet_count}\nБордов: {board_count}\n\nВыберите действие:',
+                'add_wallets_title': '💳 Добавление адресов кошельков\n\nОтправьте адреса кошельков в формате EVM (начинающиеся с 0x).\nМожно отправить несколько адресов, каждый с новой строки.\n\nПример:\n0xC7f9154a72524097B1323961F584f7047b875271\n0x1234567890123456789012345678901234567890\n\nОтправьте адреса или нажмите "Отмена":',
+                'add_boards_title': '🎯 Добавление бордов\n\nОтправьте ссылки на борды или их ID.\nМожно отправить несколько бордов, каждый с новой строки.\n\nПримеры:\nhttps://phi.box/board/5ced1c01-dca1-4021-8a9d-870955020444\n5ced1c01-dca1-4021-8a9d-870955020444\n\nОтправьте борды или нажмите "Отмена":',
+                'followers_title': '👥 Фолловеры\n\nУ вас пока нет добавленных адресов кошельков.\nСначала добавьте адреса, чтобы получить фолловеров.',
+                'followers_select': '👥 Фолловеры\n\nВыберите адрес кошелька для получения фолловеров:',
+                'token_holders_title': '🪙 Token holders\n\nУ вас пока нет добавленных адресов кошельков или бордов.\nСначала добавьте их, чтобы получить холдеров токенов.',
+                'token_holders_select': '🪙 Token holders\n\nВыберите адрес кошелька для получения холдеров токенов:',
+                'processing_complete': '✅ Обработка завершена\n\nВалидных адресов: {valid_count}\nНевалидных адресов: {invalid_count}',
+                'processing_complete_boards': '✅ Обработка завершена\n\nВалидных бордов: {valid_count}\nНевалидных бордов: {invalid_count}',
+                'invalid_addresses': '❌ Невалидные адреса:\n{addresses}',
+                'invalid_boards': '❌ Невалидные борды:\n{boards}',
+                'back_to_data': '← Назад к данным',
+                'add_wallets_btn': 'Добавить адреса',
+                'add_boards_btn': 'Добавить борды',
+                'back_to_main_btn': '← Назад',
+                'error_wallet_index': '❌ Ошибка: неверный индекс кошелька',
+                'error_achievement_check': '❌ Ошибка проверки ачивки\n\nНе удалось получить информацию об ачивке для адреса:\n{wallet_address}\n\nПопробуйте позже.',
+                'error_achievement_check_general': '❌ Ошибка проверки ачивки\n\nНе удалось проверить выполнение ачивки.\nПопробуйте позже.',
+                'achievement_completed': '✅ Ачивка уже выполнена!\n\n🎉 Поздравляем! Ачивка "{achievement_name}" уже выполнена для адреса:\n{wallet_address}\n\nХотите продолжить и помочь другим пользователям?',
+                'achievement_completed_added': '✅ Ачивка уже выполнена!\n\n🎉 Поздравляем! Ачивка "{achievement_name}" уже выполнена для адреса:\n{wallet_address}\n\nВаш адрес добавлен в общий список для помощи другим пользователям.\nХотите продолжить помогать?',
+                'trendsetter_status': '📊 Статус ачивки "Trendsetter"\n\nАдрес: {wallet_address}\nПрогресс: {progress}/{required}\nОсталось получить: {remaining} фолловеров\nВыполнено заданий: {completed_tasks}\n\nГенерируем ссылки для подписки...',
+                'token_holders_status': '📊 Статус ачивки "They Lovin\' It"\n\nАдрес: {wallet_address}\nПрогресс: {progress}/{required}\nОсталось получить: {remaining} холдеров\nВыполнено заданий: {completed_tasks}\n\nГенерируем ссылки для покупки токенов...',
+                'followers_available': '👥 Фолловеры для адреса {wallet_address_short}...\n\n📋 Доступно адресов: {available_count} из {needed_count} необходимых\n\nПодпишитесь на следующие профили:\n{links}\n\nПосле подписки нажмите "Готово".',
+                'tokens_available': '🪙 Token holders для адреса {wallet_address_short}...\n\n📋 Доступно токенов: {available_count} из {needed_count} необходимых\n\nКупите следующие токены:\n{links}\n\nПосле покупки нажмите "Готово".',
+                'insufficient_addresses': '\n\n⏳ Недостаточно адресов для полного выполнения задания.\nМы уведомим вас, когда появятся новые адреса.',
+                'insufficient_tokens': '\n\n⏳ Недостаточно токенов для полного выполнения задания.\nМы уведомим вас, когда появятся новые токены.',
+                'achievement_success': '🎉 Поздравляем!\n\nАчивка "{achievement_name}" успешно выполнена для адреса:\n{wallet_address}\n\nВаш адрес добавлен в общий список для помощи другим пользователям.\nВыполнено заданий: {completed_tasks}',
+                'achievement_success_simple': '🎉 Поздравляем!\n\nАчивка "{achievement_name}" успешно выполнена для адреса:\n{wallet_address}\n\nВыполнено заданий: {completed_tasks}',
+                'help_others_followers': '🤝 Помощь другим пользователям\n\nПодпишитесь на эти профили, чтобы помочь другим получить ачивку:\n\n{links}\n\nСпасибо за помощь! 🙏',
+                'help_others_tokens': '🤝 Помощь другим пользователям\n\nКупите токены по этим ссылкам, чтобы помочь другим получить ачивку:\n\n{links}\n\nСпасибо за помощь! 🙏',
+                'no_available_addresses': '❌ Нет доступных адресов\n\nВ системе пока нет других адресов для помощи.',
+                'no_available_tokens': '❌ Нет доступных токенов\n\nВ системе пока нет других токенов для помощи.',
+                'achievement_not_completed': '⏳ Ачивка еще не выполнена\n\nОсталось получить: {remaining} {type}\n\nВозможно, нужно подождать некоторое время для обновления данных.\nПопробуйте проверить еще раз через 30 секунд.',
+                'checking_purchases': '🔍 Проверяем покупки токенов...',
+                'checking_followers': '🔍 Проверяем подписки...',
+                'data_not_updated': '⏳ Данные еще не обновились\n\nAPI показывает, что вы пока не купили ни одного из {count} токенов.\n\nЕсли вы уверены, что купили все токены, можете закрыть это меню.\nМы будем проверять каждые 5 минут и уведомим вас, когда данные обновятся.\n\nМаксимум проверок: 30 (2.5 часа)',
+                'data_not_updated_followers': '⏳ Данные еще не обновились\n\nAPI показывает, что вы пока не подписались ни на кого из {count} профилей.\n\nЕсли вы уверены, что подписались на всех, можете закрыть это меню.\nМы будем проверять каждые 5 минут и уведомим вас, когда данные обновятся.\n\nМаксимум проверок: 30 (2.5 часа)',
+                'all_purchases_complete': '✅ Покупки выполнены!\n\nВы успешно купили все {count} токенов.\nВыполнено заданий: {completed_tasks}\n\nАчивка может обновиться через некоторое время.',
+                'all_followers_complete': '✅ Подписки выполнены!\n\nВы успешно подписались на все {count} профилей.\nВыполнено заданий: {completed_tasks}\n\nАчивка может обновиться через некоторое время.',
+                'not_all_purchases': '⚠️ Не все покупки выполнены\n\nВы купили {purchased} из {total} токенов.\n\nОсталось купить:\n{links}\n\nПосле покупки нажмите "Готово" еще раз.',
+                'not_all_followers': '⚠️ Не все подписки выполнены\n\nВы подписались на {followed} из {total} профилей.\n\nОсталось подписаться на:\n{links}\n\nЕсли вы уверены, что подписались на всех, можете закрыть это меню.\nМы будем проверять каждые 5 минут и уведомим вас, когда данные обновятся.',
+                'insufficient_tokens_system': '❌ Недостаточно токенов\n\nВ системе недостаточно токенов для генерации ссылок.',
+                'insufficient_addresses_system': '❌ Недостаточно адресов\n\nВ системе недостаточно адресов для генерации ссылок.',
+                'refresh_links_tokens': '🔄 Обновленные ссылки для покупки токенов\n\nКупите токены по этим ссылкам для получения {remaining} холдеров:\n\n{links}\n\nПосле покупки нажмите "Готово".',
+                'refresh_links_followers': '🔄 Обновленные ссылки для подписки\n\nПодпишитесь на эти профили для получения {remaining} фолловеров:\n\n{links}\n\nПосле подписки нажмите "Готово".',
+                'followers_type': 'фолловеров',
+                'holders_type': 'холдеров'
+            },
+            'en': {
+                'welcome': '🤖 Welcome to PHI Helper Bot!\n\nYou can add your wallet addresses to complete achievements, as well as your boards.\n\n📊 Your statistics:\n• Wallet addresses: {wallet_count}\n• Boards: {board_count}\n\nChoose an action:',
+                'my_data': 'My Data',
+                'followers': 'Followers',
+                'token_holders': 'Token holders',
+                'back': '← Back',
+                'main_menu': '← Main Menu',
+                'add_wallets': 'Add Addresses',
+                'add_boards': 'Add Boards',
+                'cancel': 'Cancel',
+                'done': '✅ Done',
+                'refresh': '🔄 Refresh',
+                'continue': 'Continue',
+                'language_selection': '🌐 Choose language / Выберите язык:',
+                'russian': '🇷🇺 Русский',
+                'english': '🇺🇸 English',
+                'language_changed': '✅ Language changed to: {language}',
+                'my_data_title': '📋 My Data\n\nWallet addresses: {wallet_count}\nBoards: {board_count}\n\nChoose an action:',
+                'add_wallets_title': '💳 Adding Wallet Addresses\n\nSend wallet addresses in EVM format (starting with 0x).\nYou can send multiple addresses, each on a new line.\n\nExample:\n0xC7f9154a72524097B1323961F584f7047b875271\n0x1234567890123456789012345678901234567890\n\nSend addresses or press "Cancel":',
+                'add_boards_title': '🎯 Adding Boards\n\nSend board links or their IDs.\nYou can send multiple boards, each on a new line.\n\nExamples:\nhttps://phi.box/board/5ced1c01-dca1-4021-8a9d-870955020444\n5ced1c01-dca1-4021-8a9d-870955020444\n\nSend boards or press "Cancel":',
+                'followers_title': '👥 Followers\n\nYou don\'t have any wallet addresses added yet.\nFirst add addresses to get followers.',
+                'followers_select': '👥 Followers\n\nChoose a wallet address to get followers:',
+                'token_holders_title': '🪙 Token holders\n\nYou don\'t have any wallet addresses or boards added yet.\nFirst add them to get token holders.',
+                'token_holders_select': '🪙 Token holders\n\nChoose a wallet address to get token holders:',
+                'processing_complete': '✅ Processing complete\n\nValid addresses: {valid_count}\nInvalid addresses: {invalid_count}',
+                'processing_complete_boards': '✅ Processing complete\n\nValid boards: {valid_count}\nInvalid boards: {invalid_count}',
+                'invalid_addresses': '❌ Invalid addresses:\n{addresses}',
+                'invalid_boards': '❌ Invalid boards:\n{boards}',
+                'back_to_data': '← Back to data',
+                'add_wallets_btn': 'Add Addresses',
+                'add_boards_btn': 'Add Boards',
+                'back_to_main_btn': '← Back',
+                'error_wallet_index': '❌ Error: invalid wallet index',
+                'error_achievement_check': '❌ Achievement check error\n\nFailed to get achievement information for address:\n{wallet_address}\n\nPlease try again later.',
+                'error_achievement_check_general': '❌ Achievement check error\n\nFailed to verify achievement completion.\nPlease try again later.',
+                'achievement_completed': '✅ Achievement already completed!\n\n🎉 Congratulations! Achievement "{achievement_name}" is already completed for address:\n{wallet_address}\n\nWould you like to continue and help other users?',
+                'achievement_completed_added': '✅ Achievement already completed!\n\n🎉 Congratulations! Achievement "{achievement_name}" is already completed for address:\n{wallet_address}\n\nYour address has been added to the general list to help other users.\nWould you like to continue helping?',
+                'trendsetter_status': '📊 "Trendsetter" Achievement Status\n\nAddress: {wallet_address}\nProgress: {progress}/{required}\nRemaining to get: {remaining} followers\nCompleted tasks: {completed_tasks}\n\nGenerating subscription links...',
+                'token_holders_status': '📊 "They Lovin\' It" Achievement Status\n\nAddress: {wallet_address}\nProgress: {progress}/{required}\nRemaining to get: {remaining} holders\nCompleted tasks: {completed_tasks}\n\nGenerating token purchase links...',
+                'followers_available': '👥 Followers for address {wallet_address_short}...\n\n📋 Available addresses: {available_count} out of {needed_count} needed\n\nSubscribe to the following profiles:\n{links}\n\nAfter subscribing, press "Done".',
+                'tokens_available': '🪙 Token holders for address {wallet_address_short}...\n\n📋 Available tokens: {available_count} out of {needed_count} needed\n\nBuy the following tokens:\n{links}\n\nAfter purchasing, press "Done".',
+                'insufficient_addresses': '\n\n⏳ Not enough addresses to complete the task.\nWe will notify you when new addresses appear.',
+                'insufficient_tokens': '\n\n⏳ Not enough tokens to complete the task.\nWe will notify you when new tokens appear.',
+                'achievement_success': '🎉 Congratulations!\n\nAchievement "{achievement_name}" successfully completed for address:\n{wallet_address}\n\nYour address has been added to the general list to help other users.\nCompleted tasks: {completed_tasks}',
+                'achievement_success_simple': '🎉 Congratulations!\n\nAchievement "{achievement_name}" successfully completed for address:\n{wallet_address}\n\nCompleted tasks: {completed_tasks}',
+                'help_others_followers': '🤝 Helping other users\n\nSubscribe to these profiles to help others get the achievement:\n\n{links}\n\nThank you for your help! 🙏',
+                'help_others_tokens': '🤝 Helping other users\n\nBuy tokens using these links to help others get the achievement:\n\n{links}\n\nThank you for your help! 🙏',
+                'no_available_addresses': '❌ No available addresses\n\nThere are no other addresses in the system for help.',
+                'no_available_tokens': '❌ No available tokens\n\nThere are no other tokens in the system for help.',
+                'achievement_not_completed': '⏳ Achievement not completed yet\n\nRemaining to get: {remaining} {type}\n\nYou may need to wait some time for data to update.\nTry checking again in 30 seconds.',
+                'checking_purchases': '🔍 Checking token purchases...',
+                'checking_followers': '🔍 Checking subscriptions...',
+                'data_not_updated': '⏳ Data not updated yet\n\nAPI shows you haven\'t bought any of the {count} tokens yet.\n\nIf you\'re sure you bought all tokens, you can close this menu.\nWe will check every 5 minutes and notify you when data updates.\n\nMaximum checks: 30 (2.5 hours)',
+                'data_not_updated_followers': '⏳ Data not updated yet\n\nAPI shows you haven\'t subscribed to any of the {count} profiles yet.\n\nIf you\'re sure you subscribed to everyone, you can close this menu.\nWe will check every 5 minutes and notify you when data updates.\n\nMaximum checks: 30 (2.5 hours)',
+                'all_purchases_complete': '✅ Purchases completed!\n\nYou successfully bought all {count} tokens.\nCompleted tasks: {completed_tasks}\n\nAchievement may update after some time.',
+                'all_followers_complete': '✅ Subscriptions completed!\n\nYou successfully subscribed to all {count} profiles.\nCompleted tasks: {completed_tasks}\n\nAchievement may update after some time.',
+                'not_all_purchases': '⚠️ Not all purchases completed\n\nYou bought {purchased} out of {total} tokens.\n\nStill need to buy:\n{links}\n\nAfter purchasing, press "Done" again.',
+                'not_all_followers': '⚠️ Not all subscriptions completed\n\nYou subscribed to {followed} out of {total} profiles.\n\nStill need to subscribe to:\n{links}\n\nIf you\'re sure you subscribed to everyone, you can close this menu.\nWe will check every 5 minutes and notify you when data updates.',
+                'insufficient_tokens_system': '❌ Not enough tokens\n\nThere are not enough tokens in the system to generate links.',
+                'insufficient_addresses_system': '❌ Not enough addresses\n\nThere are not enough addresses in the system to generate links.',
+                'refresh_links_tokens': '🔄 Updated token purchase links\n\nBuy tokens using these links to get {remaining} holders:\n\n{links}\n\nAfter purchasing, press "Done".',
+                'refresh_links_followers': '🔄 Updated subscription links\n\nSubscribe to these profiles to get {remaining} followers:\n\n{links}\n\nAfter subscribing, press "Done".',
+                'followers_type': 'followers',
+                'holders_type': 'holders'
+            }
+        }
+    
+    def get_text(self, user_id: int, key: str, **kwargs) -> str:
+        """Получает переведенный текст для пользователя"""
+        user_data = self.users_data.get(user_id, UserData([], []))
+        language = user_data.language
+        text = self.translations.get(language, self.translations['ru']).get(key, key)
+        return text.format(**kwargs) if kwargs else text
     
     def load_users_data(self) -> Dict[int, UserData]:
         """Загружает данные пользователей из JSON файла"""
@@ -55,7 +206,8 @@ class PHIBot:
                             wallet_addresses=user_data.get('wallet_addresses', []),
                             board_addresses=user_data.get('board_addresses', []),
                             completed_followers_tasks=user_data.get('completed_followers_tasks', 0),
-                            completed_token_tasks=user_data.get('completed_token_tasks', 0)
+                            completed_token_tasks=user_data.get('completed_token_tasks', 0),
+                            language=user_data.get('language', 'ru')
                         )
                         for user_id, user_data in data.items()
                     }
@@ -71,7 +223,8 @@ class PHIBot:
                     'wallet_addresses': user_data.wallet_addresses,
                     'board_addresses': user_data.board_addresses,
                     'completed_followers_tasks': user_data.completed_followers_tasks,
-                    'completed_token_tasks': user_data.completed_token_tasks
+                    'completed_token_tasks': user_data.completed_token_tasks,
+                    'language': user_data.language
                 }
                 for user_id, user_data in self.users_data.items()
             }
@@ -110,9 +263,9 @@ class PHIBot:
         board_count = len(user_data.board_addresses)
         
         keyboard = [
-            [InlineKeyboardButton("Мои данные", callback_data="my_data")],
-            [InlineKeyboardButton("Фолловеры", callback_data="followers")],
-            [InlineKeyboardButton("Token holders", callback_data="token_holders")]
+            [InlineKeyboardButton(self.get_text(user_id, 'my_data'), callback_data="my_data")],
+            [InlineKeyboardButton(self.get_text(user_id, 'followers'), callback_data="followers")],
+            [InlineKeyboardButton(self.get_text(user_id, 'token_holders'), callback_data="token_holders")]
         ]
         return InlineKeyboardMarkup(keyboard)
     
@@ -122,16 +275,7 @@ class PHIBot:
         wallet_count = len(user_data.wallet_addresses)
         board_count = len(user_data.board_addresses)
         
-        message = f"""🤖 Добро пожаловать в PHI Helper Bot!
-
-Вы можете добавить свои адреса кошельков для выполнения ачивок, а также свои борды.
-
-📊 Ваша статистика:
-• Адресов кошельков: {wallet_count}
-• Бордов: {board_count}
-
-Выберите действие:"""
-        return message
+        return self.get_text(user_id, 'welcome', wallet_count=wallet_count, board_count=board_count)
     
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик команды /start"""
@@ -142,10 +286,133 @@ class PHIBot:
             self.users_data[user_id] = UserData([], [])
             self.save_users_data()
         
-        message = self.get_main_menu_message(user_id)
-        keyboard = self.get_main_menu_keyboard(user_id)
+        # Проверяем, есть ли у пользователя выбранный язык
+        user_data = self.users_data[user_id]
+        if not hasattr(user_data, 'language') or user_data.language is None:
+            # Показываем меню выбора языка
+            await self.show_language_selection(update)
+        else:
+            # Показываем главное меню
+            message = self.get_main_menu_message(user_id)
+            keyboard = self.get_main_menu_keyboard(user_id)
+            await update.message.reply_text(message, reply_markup=keyboard)
+    
+    async def show_language_selection(self, update: Update):
+        """Показывает меню выбора языка"""
+        message = "🌐 Выберите язык / Choose language:"
+        keyboard = [
+            [InlineKeyboardButton("🇷🇺 Русский", callback_data="set_language_ru")],
+            [InlineKeyboardButton("🇺🇸 English", callback_data="set_language_en")]
+        ]
         
-        await update.message.reply_text(message, reply_markup=keyboard)
+        if hasattr(update, 'message'):
+            await update.message.reply_text(message, reply_markup=InlineKeyboardMarkup(keyboard))
+        else:
+            await update.callback_query.edit_message_text(message, reply_markup=InlineKeyboardMarkup(keyboard))
+    
+    async def language_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработчик команды /language"""
+        user_id = update.effective_user.id
+        
+        # Инициализируем пользователя если его нет
+        if user_id not in self.users_data:
+            self.users_data[user_id] = UserData([], [])
+            self.save_users_data()
+        
+        await self.show_language_selection(update)
+    
+    async def set_language(self, query, language: str):
+        """Устанавливает язык пользователя"""
+        user_id = query.from_user.id
+        
+        if user_id not in self.users_data:
+            self.users_data[user_id] = UserData([], [])
+        
+        self.users_data[user_id].language = language
+        self.save_users_data()
+        
+        language_name = "Русский" if language == 'ru' else "English"
+        message = f"✅ Язык изменен на: {language_name}"
+        
+        keyboard = [
+            [InlineKeyboardButton(self.get_text(user_id, 'main_menu'), callback_data="back_to_main")]
+        ]
+        
+        await query.edit_message_text(message, reply_markup=InlineKeyboardMarkup(keyboard))
+    
+    async def my_data_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработчик команды /my"""
+        user_id = update.effective_user.id
+        
+        # Инициализируем пользователя если его нет
+        if user_id not in self.users_data:
+            self.users_data[user_id] = UserData([], [])
+            self.save_users_data()
+        
+        # Создаем фейковый query для использования существующего метода
+        class FakeQuery:
+            def __init__(self, user_id):
+                self.from_user = type('obj', (object,), {'id': user_id})()
+            
+            async def edit_message_text(self, text, reply_markup=None):
+                await update.message.reply_text(text, reply_markup=reply_markup)
+        
+        fake_query = FakeQuery(user_id)
+        await self.show_my_data_menu(fake_query)
+    
+    async def trendsetter_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработчик команды /trendsetter"""
+        user_id = update.effective_user.id
+        
+        # Инициализируем пользователя если его нет
+        if user_id not in self.users_data:
+            self.users_data[user_id] = UserData([], [])
+            self.save_users_data()
+        
+        # Создаем фейковый query для использования существующего метода
+        class FakeQuery:
+            def __init__(self, user_id):
+                self.from_user = type('obj', (object,), {'id': user_id})()
+            
+            async def edit_message_text(self, text, reply_markup=None):
+                await update.message.reply_text(text, reply_markup=reply_markup)
+        
+        fake_query = FakeQuery(user_id)
+        await self.show_followers_menu(fake_query)
+    
+    async def tokens_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработчик команды /tokens"""
+        user_id = update.effective_user.id
+        
+        # Инициализируем пользователя если его нет
+        if user_id not in self.users_data:
+            self.users_data[user_id] = UserData([], [])
+            self.save_users_data()
+        
+        # Создаем фейковый query для использования существующего метода
+        class FakeQuery:
+            def __init__(self, user_id):
+                self.from_user = type('obj', (object,), {'id': user_id})()
+            
+            async def edit_message_text(self, text, reply_markup=None):
+                await update.message.reply_text(text, reply_markup=reply_markup)
+        
+        fake_query = FakeQuery(user_id)
+        await self.show_token_holders_menu(fake_query)
+    
+    async def set_bot_commands(self):
+        """Устанавливает меню команд бота"""
+        from telegram import BotCommand
+        
+        commands = [
+            BotCommand("start", "Main menu / Главное меню"),
+            BotCommand("my", "My data / Мои данные"),
+            BotCommand("trendsetter", "Execute subscriptions / Выполнить подписки"),
+            BotCommand("tokens", "Buy user tokens / Купить токены пользователей"),
+            BotCommand("language", "Language selection / Выбор языка")
+        ]
+        
+        await self.application.bot.set_my_commands(commands)
     
     async def button_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик нажатий на кнопки"""
@@ -171,6 +438,10 @@ class PHIBot:
             await self.show_token_holders_menu(query)
         elif data == "back_to_main":
             await self.show_main_menu(query)
+        elif data == "set_language_ru":
+            await self.set_language(query, 'ru')
+        elif data == "set_language_en":
+            await self.set_language(query, 'en')
         elif data.startswith("followers_wallet_"):
             wallet_index = int(data.split("_")[2])
             await self.handle_followers_wallet_selection(query, wallet_index)
@@ -209,55 +480,36 @@ class PHIBot:
         user_id = query.from_user.id
         user_data = self.users_data.get(user_id, UserData([], []))
         
-        message = f"""📋 Мои данные
-
-Адресов кошельков: {len(user_data.wallet_addresses)}
-Бордов: {len(user_data.board_addresses)}
-
-Выберите действие:"""
+        message = self.get_text(user_id, 'my_data_title', 
+                               wallet_count=len(user_data.wallet_addresses),
+                               board_count=len(user_data.board_addresses))
         
         keyboard = [
-            [InlineKeyboardButton("Добавить адреса", callback_data="add_wallets")],
-            [InlineKeyboardButton("Добавить борды", callback_data="add_boards")],
-            [InlineKeyboardButton("← Назад", callback_data="back_to_main")]
+            [InlineKeyboardButton(self.get_text(user_id, 'add_wallets'), callback_data="add_wallets")],
+            [InlineKeyboardButton(self.get_text(user_id, 'add_boards'), callback_data="add_boards")],
+            [InlineKeyboardButton(self.get_text(user_id, 'back'), callback_data="back_to_main")]
         ]
         
         await query.edit_message_text(message, reply_markup=InlineKeyboardMarkup(keyboard))
     
     async def show_add_wallets_menu(self, query):
         """Показывает меню добавления адресов"""
-        message = """💳 Добавление адресов кошельков
-
-Отправьте адреса кошельков в формате EVM (начинающиеся с 0x).
-Можно отправить несколько адресов, каждый с новой строки.
-
-Пример:
-0xC7f9154a72524097B1323961F584f7047b875271
-0x1234567890123456789012345678901234567890
-
-Отправьте адреса или нажмите "Отмена":"""
+        user_id = query.from_user.id
+        message = self.get_text(user_id, 'add_wallets_title')
         
         keyboard = [
-            [InlineKeyboardButton("Отмена", callback_data="my_data")]
+            [InlineKeyboardButton(self.get_text(user_id, 'cancel'), callback_data="my_data")]
         ]
         
         await query.edit_message_text(message, reply_markup=InlineKeyboardMarkup(keyboard))
     
     async def show_add_boards_menu(self, query):
         """Показывает меню добавления бордов"""
-        message = """🎯 Добавление бордов
-
-Отправьте ссылки на борды или их ID.
-Можно отправить несколько бордов, каждый с новой строки.
-
-Примеры:
-https://phi.box/board/5ced1c01-dca1-4021-8a9d-870955020444
-5ced1c01-dca1-4021-8a9d-870955020444
-
-Отправьте борды или нажмите "Отмена":"""
+        user_id = query.from_user.id
+        message = self.get_text(user_id, 'add_boards_title')
         
         keyboard = [
-            [InlineKeyboardButton("Отмена", callback_data="my_data")]
+            [InlineKeyboardButton(self.get_text(user_id, 'cancel'), callback_data="my_data")]
         ]
         
         await query.edit_message_text(
@@ -272,19 +524,14 @@ https://phi.box/board/5ced1c01-dca1-4021-8a9d-870955020444
         user_data = self.users_data.get(user_id, UserData([], []))
         
         if not user_data.wallet_addresses:
-            message = """👥 Фолловеры
-
-У вас пока нет добавленных адресов кошельков.
-Сначала добавьте адреса, чтобы получить фолловеров."""
+            message = self.get_text(user_id, 'followers_title')
             
             keyboard = [
-                [InlineKeyboardButton("Добавить адреса", callback_data="add_wallets")],
-                [InlineKeyboardButton("← Назад", callback_data="back_to_main")]
+                [InlineKeyboardButton(self.get_text(user_id, 'add_wallets'), callback_data="add_wallets")],
+                [InlineKeyboardButton(self.get_text(user_id, 'back'), callback_data="back_to_main")]
             ]
         else:
-            message = """👥 Фолловеры
-
-Выберите адрес кошелька для получения фолловеров:"""
+            message = self.get_text(user_id, 'followers_select')
             
             keyboard = []
             for i, address in enumerate(user_data.wallet_addresses):
@@ -294,7 +541,7 @@ https://phi.box/board/5ced1c01-dca1-4021-8a9d-870955020444
                     callback_data=f"followers_wallet_{i}"
                 )])
             
-            keyboard.append([InlineKeyboardButton("← Назад", callback_data="back_to_main")])
+            keyboard.append([InlineKeyboardButton(self.get_text(user_id, 'back'), callback_data="back_to_main")])
         
         await query.edit_message_text(message, reply_markup=InlineKeyboardMarkup(keyboard))
     
@@ -304,20 +551,15 @@ https://phi.box/board/5ced1c01-dca1-4021-8a9d-870955020444
         user_data = self.users_data.get(user_id, UserData([], []))
         
         if not user_data.wallet_addresses or not user_data.board_addresses:
-            message = """🪙 Token holders
-
-У вас пока нет добавленных адресов кошельков или бордов.
-Сначала добавьте их, чтобы получить холдеров токенов."""
+            message = self.get_text(user_id, 'token_holders_title')
             
             keyboard = [
-                [InlineKeyboardButton("Добавить адреса", callback_data="add_wallets")],
-                [InlineKeyboardButton("Добавить борды", callback_data="add_boards")],
-                [InlineKeyboardButton("← Назад", callback_data="back_to_main")]
+                [InlineKeyboardButton(self.get_text(user_id, 'add_wallets'), callback_data="add_wallets")],
+                [InlineKeyboardButton(self.get_text(user_id, 'add_boards'), callback_data="add_boards")],
+                [InlineKeyboardButton(self.get_text(user_id, 'back'), callback_data="back_to_main")]
             ]
         else:
-            message = """🪙 Token holders
-
-Выберите адрес кошелька для получения холдеров токенов:"""
+            message = self.get_text(user_id, 'token_holders_select')
             
             keyboard = []
             for i, address in enumerate(user_data.wallet_addresses):
@@ -327,7 +569,7 @@ https://phi.box/board/5ced1c01-dca1-4021-8a9d-870955020444
                     callback_data=f"token_wallet_{i}"
                 )])
             
-            keyboard.append([InlineKeyboardButton("← Назад", callback_data="back_to_main")])
+            keyboard.append([InlineKeyboardButton(self.get_text(user_id, 'back'), callback_data="back_to_main")])
         
         await query.edit_message_text(message, reply_markup=InlineKeyboardMarkup(keyboard))
     
@@ -337,7 +579,7 @@ https://phi.box/board/5ced1c01-dca1-4021-8a9d-870955020444
         user_data = self.users_data.get(user_id, UserData([], []))
         
         if wallet_index >= len(user_data.wallet_addresses):
-            await query.edit_message_text("❌ Ошибка: неверный индекс кошелька")
+            await query.edit_message_text(self.get_text(user_id, 'error_wallet_index'))
             return
         
         wallet_address = user_data.wallet_addresses[wallet_index]
@@ -346,15 +588,10 @@ https://phi.box/board/5ced1c01-dca1-4021-8a9d-870955020444
         achievement = self.api_client.get_trendsetter_achievement(wallet_address)
         
         if not achievement:
-            message = f"""❌ Ошибка проверки ачивки
-
-Не удалось получить информацию об ачивке для адреса:
-{wallet_address}
-
-Попробуйте позже."""
+            message = self.get_text(user_id, 'error_achievement_check', wallet_address=wallet_address)
             
             keyboard = [
-                [InlineKeyboardButton("← Назад", callback_data="followers")]
+                [InlineKeyboardButton(self.get_text(user_id, 'back'), callback_data="followers")]
             ]
         elif achievement['completed']:
             # Ачивка уже выполнена - проверяем, есть ли адрес в общем списке
@@ -362,26 +599,17 @@ https://phi.box/board/5ced1c01-dca1-4021-8a9d-870955020444
             
             if is_in_global_list:
                 # Адрес уже в общем списке - не показываем это пользователю
-                message = f"""✅ Ачивка уже выполнена!
-
-🎉 Поздравляем! Ачивка "Trendsetter" уже выполнена для адреса:
-{wallet_address}
-
-Хотите продолжить и помочь другим пользователям?"""
+                message = self.get_text(user_id, 'achievement_completed', 
+                                      achievement_name='Trendsetter', wallet_address=wallet_address)
             else:
                 # Адрес не в общем списке - добавляем его
                 self.add_wallet_to_global_list(wallet_address)
-                message = f"""✅ Ачивка уже выполнена!
-
-🎉 Поздравляем! Ачивка "Trendsetter" уже выполнена для адреса:
-{wallet_address}
-
-Ваш адрес добавлен в общий список для помощи другим пользователям.
-Хотите продолжить помогать?"""
+                message = self.get_text(user_id, 'achievement_completed_added', 
+                                      achievement_name='Trendsetter', wallet_address=wallet_address)
             
             keyboard = [
-                [InlineKeyboardButton("Продолжить", callback_data=f"followers_continue_{wallet_index}")],
-                [InlineKeyboardButton("← Назад", callback_data="followers")]
+                [InlineKeyboardButton(self.get_text(user_id, 'continue'), callback_data=f"followers_continue_{wallet_index}")],
+                [InlineKeyboardButton(self.get_text(user_id, 'back'), callback_data="followers")]
             ]
         else:
             remaining = achievement['remaining']
@@ -396,14 +624,9 @@ https://phi.box/board/5ced1c01-dca1-4021-8a9d-870955020444
             if completed_tasks > 0:
                 remaining = max(0, remaining - completed_tasks)
             
-            message = f"""📊 Статус ачивки "Trendsetter"
-
-Адрес: {wallet_address}
-Прогресс: {progress}/{required}
-Осталось получить: {remaining} фолловеров
-Выполнено заданий: {completed_tasks}
-
-Генерируем ссылки для подписки..."""
+            message = self.get_text(user_id, 'trendsetter_status',
+                                  wallet_address=wallet_address, progress=progress, 
+                                  required=required, remaining=remaining, completed_tasks=completed_tasks)
             
             await query.edit_message_text(message)
             
@@ -431,19 +654,17 @@ https://phi.box/board/5ced1c01-dca1-4021-8a9d-870955020444
             self.save_users_data()
             
             # Показываем все доступные адреса
-            message = f"""👥 Фолловеры для адреса {wallet_address[:10]}...
-
-📋 Доступно адресов: {len(profile_links)} из {remaining} необходимых
-
-Подпишитесь на следующие профили:
-{chr(10).join([f"{i+1}. {link}" for i, link in enumerate(profile_links)])}
-
-После подписки нажмите "Готово"."""
+            links_text = chr(10).join([f"{i+1}. {link}" for i, link in enumerate(profile_links)])
+            message = self.get_text(user_id, 'followers_available',
+                                  wallet_address_short=wallet_address[:10],
+                                  available_count=len(profile_links),
+                                  needed_count=remaining,
+                                  links=links_text)
             
             keyboard = [
-                [InlineKeyboardButton("🔄 Обновить", callback_data=f"followers_refresh_{wallet_index}")],
-                [InlineKeyboardButton("✅ Готово", callback_data=f"followers_done_{wallet_index}")],
-                [InlineKeyboardButton("❌ Отмена", callback_data="followers")]
+                [InlineKeyboardButton(self.get_text(user_id, 'refresh'), callback_data=f"followers_refresh_{wallet_index}")],
+                [InlineKeyboardButton(self.get_text(user_id, 'done'), callback_data=f"followers_done_{wallet_index}")],
+                [InlineKeyboardButton(self.get_text(user_id, 'cancel'), callback_data="followers")]
             ]
             
             # Если недостаточно адресов, добавляем в очередь ожидания
@@ -460,10 +681,7 @@ https://phi.box/board/5ced1c01-dca1-4021-8a9d-870955020444
                     )
                 
                 # Добавляем информацию о том, что недостаточно адресов
-                message += f"""
-
-⏳ Недостаточно адресов для полного выполнения задания.
-Мы уведомим вас, когда появятся новые адреса."""
+                message += self.get_text(user_id, 'insufficient_addresses')
         
         await query.edit_message_text(
             text=message,
@@ -478,7 +696,7 @@ https://phi.box/board/5ced1c01-dca1-4021-8a9d-870955020444
         user_data = self.users_data.get(user_id, UserData([], []))
         
         if wallet_index >= len(user_data.wallet_addresses):
-            await query.edit_message_text("❌ Ошибка: неверный индекс кошелька")
+            await query.edit_message_text(self.get_text(user_id, 'error_wallet_index'))
             return
         
         wallet_address = user_data.wallet_addresses[wallet_index]
@@ -487,15 +705,10 @@ https://phi.box/board/5ced1c01-dca1-4021-8a9d-870955020444
         achievement = self.api_client.get_token_holders_achievement(wallet_address)
         
         if not achievement:
-            message = f"""❌ Ошибка проверки ачивки
-
-Не удалось получить информацию об ачивке для адреса:
-{wallet_address}
-
-Попробуйте позже."""
+            message = self.get_text(user_id, 'error_achievement_check', wallet_address=wallet_address)
             
             keyboard = [
-                [InlineKeyboardButton("← Назад", callback_data="token_holders")]
+                [InlineKeyboardButton(self.get_text(user_id, 'back'), callback_data="token_holders")]
             ]
         elif achievement['completed']:
             # Ачивка уже выполнена - проверяем, есть ли адрес в общем списке
@@ -503,26 +716,17 @@ https://phi.box/board/5ced1c01-dca1-4021-8a9d-870955020444
             
             if is_in_global_list:
                 # Адрес уже в общем списке - не показываем это пользователю
-                message = f"""✅ Ачивка уже выполнена!
-
-🎉 Поздравляем! Ачивка "They Lovin' It" уже выполнена для адреса:
-{wallet_address}
-
-Хотите продолжить и помочь другим пользователям?"""
+                message = self.get_text(user_id, 'achievement_completed', 
+                                      achievement_name="They Lovin' It", wallet_address=wallet_address)
             else:
                 # Адрес не в общем списке - добавляем его
                 self.add_wallet_to_global_list(wallet_address)
-                message = f"""✅ Ачивка уже выполнена!
-
-🎉 Поздравляем! Ачивка "They Lovin' It" уже выполнена для адреса:
-{wallet_address}
-
-Ваш адрес добавлен в общий список для помощи другим пользователям.
-Хотите продолжить помогать?"""
+                message = self.get_text(user_id, 'achievement_completed_added', 
+                                      achievement_name="They Lovin' It", wallet_address=wallet_address)
             
             keyboard = [
-                [InlineKeyboardButton("Продолжить", callback_data=f"token_continue_{wallet_index}")],
-                [InlineKeyboardButton("← Назад", callback_data="token_holders")]
+                [InlineKeyboardButton(self.get_text(user_id, 'continue'), callback_data=f"token_continue_{wallet_index}")],
+                [InlineKeyboardButton(self.get_text(user_id, 'back'), callback_data="token_holders")]
             ]
         else:
             remaining = achievement['remaining']
@@ -537,14 +741,9 @@ https://phi.box/board/5ced1c01-dca1-4021-8a9d-870955020444
             if completed_tasks > 0:
                 remaining = max(0, remaining - completed_tasks)
             
-            message = f"""📊 Статус ачивки "They Lovin' It"
-
-Адрес: {wallet_address}
-Прогресс: {progress}/{required}
-Осталось получить: {remaining} холдеров
-Выполнено заданий: {completed_tasks}
-
-Генерируем ссылки для покупки токенов..."""
+            message = self.get_text(user_id, 'token_holders_status',
+                                  wallet_address=wallet_address, progress=progress, 
+                                  required=required, remaining=remaining, completed_tasks=completed_tasks)
             
             await query.edit_message_text(message)
             
@@ -572,19 +771,17 @@ https://phi.box/board/5ced1c01-dca1-4021-8a9d-870955020444
             self.save_users_data()
             
             # Показываем все доступные токены
-            message = f"""🪙 Token holders для адреса {wallet_address[:10]}...
-
-📋 Доступно токенов: {len(token_links)} из {remaining} необходимых
-
-Купите следующие токены:
-{chr(10).join([f"{i+1}. {link}" for i, link in enumerate(token_links)])}
-
-После покупки нажмите "Готово"."""
+            links_text = chr(10).join([f"{i+1}. {link}" for i, link in enumerate(token_links)])
+            message = self.get_text(user_id, 'tokens_available',
+                                  wallet_address_short=wallet_address[:10],
+                                  available_count=len(token_links),
+                                  needed_count=remaining,
+                                  links=links_text)
             
             keyboard = [
-                [InlineKeyboardButton("🔄 Обновить", callback_data=f"token_refresh_{wallet_index}")],
-                [InlineKeyboardButton("✅ Готово", callback_data=f"token_done_{wallet_index}")],
-                [InlineKeyboardButton("❌ Отмена", callback_data="token_holders")]
+                [InlineKeyboardButton(self.get_text(user_id, 'refresh'), callback_data=f"token_refresh_{wallet_index}")],
+                [InlineKeyboardButton(self.get_text(user_id, 'done'), callback_data=f"token_done_{wallet_index}")],
+                [InlineKeyboardButton(self.get_text(user_id, 'cancel'), callback_data="token_holders")]
             ]
             
             # Если недостаточно токенов, добавляем в очередь ожидания
@@ -601,10 +798,7 @@ https://phi.box/board/5ced1c01-dca1-4021-8a9d-870955020444
                     )
                 
                 # Добавляем информацию о том, что недостаточно токенов
-                message += f"""
-
-⏳ Недостаточно токенов для полного выполнения задания.
-Мы уведомим вас, когда появятся новые токены."""
+                message += self.get_text(user_id, 'insufficient_tokens')
         
         await query.edit_message_text(
             text=message,
@@ -614,7 +808,7 @@ https://phi.box/board/5ced1c01-dca1-4021-8a9d-870955020444
         )
     
     def generate_followers_links(self, count: int, exclude_wallet: str, user_id: int = None) -> List[str]:
-        """Генерирует ссылки на профили для подписки"""
+        """Генерирует ссылки на профили для подписки (только для адресов без ачивки Trendsetter)"""
         try:
             # Получаем все адреса пользователя для исключения
             user_addresses = set()
@@ -624,17 +818,42 @@ https://phi.box/board/5ced1c01-dca1-4021-8a9d-870955020444
             # Добавляем выбранный кошелек в исключения
             user_addresses.add(exclude_wallet)
             
-            # Получаем случайные кошельки, исключая все адреса пользователя
-            available_wallets = self.data_manager.get_random_wallets(count, user_addresses)
+            # Получаем все кошельки и фильтруем их
+            all_wallets = self.data_manager.read_wallets()
+            filtered_wallets = []
             
-            if len(available_wallets) < count:
-                # Если недостаточно кошельков, берем все доступные
-                all_wallets = self.data_manager.read_wallets()
-                available_wallets = [w for w in all_wallets if w not in user_addresses]
+            print(f"🔍 Фильтруем {len(all_wallets)} кошельков для подписок...")
+            
+            for wallet in all_wallets:
+                # Исключаем адреса пользователя
+                if wallet in user_addresses:
+                    continue
+                
+                # Проверяем ачивку Trendsetter (получается при 10+ фолловерах)
+                achievement = self.api_client.get_trendsetter_achievement(wallet)
+                if achievement and achievement['completed']:
+                    print(f"   ❌ Адрес {wallet[:10]}... уже имеет ачивку Trendsetter (10+ фолловеров) - пропускаем")
+                    # Удаляем адрес из файла, так как ачивка уже получена
+                    self.data_manager.remove_wallet(wallet)
+                    continue
+                elif achievement is None:
+                    print(f"   ⚠️ Не удалось проверить ачивку для {wallet[:10]}... - пропускаем")
+                    continue
+                else:
+                    print(f"   ✅ Адрес {wallet[:10]}... подходит для подписок (фолловеров: {achievement.get('progress_count', 0)})")
+                    filtered_wallets.append(wallet)
+            
+            # Берем нужное количество адресов
+            if len(filtered_wallets) <= count:
+                available_wallets = filtered_wallets
+            else:
+                available_wallets = random.sample(filtered_wallets, count)
+            
+            print(f"📋 Выбрано {len(available_wallets)} адресов для подписок")
             
             # Создаем HTML-ссылки на профили
             links = []
-            for wallet in available_wallets[:count]:
+            for wallet in available_wallets:
                 links.append(f'<a href="https://phi.box/profile/{wallet}">{wallet}</a>')
             
             return links
@@ -644,24 +863,49 @@ https://phi.box/board/5ced1c01-dca1-4021-8a9d-870955020444
             return []
     
     def generate_token_links(self, count: int, exclude_wallet: str, user_id: int = None) -> List[str]:
-        """Генерирует ссылки на токены для покупки"""
+        """Генерирует ссылки на токены для покупки (только для токенов с недостаточным количеством холдеров)"""
         try:
             # Получаем все борды пользователя для исключения
             user_boards = set()
             if user_id and user_id in self.users_data:
                 user_boards = set(self.users_data[user_id].board_addresses)
             
-            # Получаем случайные токены, исключая собственные борды пользователя
-            available_tokens = self.data_manager.get_random_tokens(count, user_boards)
+            # Получаем все токены и фильтруем их
+            all_tokens = self.data_manager.read_tokens()
+            filtered_tokens = []
             
-            if len(available_tokens) < count:
-                # Если недостаточно токенов, берем все доступные
-                all_tokens = self.data_manager.read_tokens()
-                available_tokens = [t for t in all_tokens if t not in user_boards]
+            print(f"🔍 Фильтруем {len(all_tokens)} токенов для покупок...")
+            
+            for board_id in all_tokens:
+                # Исключаем собственные борды пользователя
+                if board_id in user_boards:
+                    continue
+                
+                # Проверяем количество холдеров токена
+                holders_count = self.api_client.get_token_holders_count(board_id)
+                if holders_count is None:
+                    print(f"   ⚠️ Не удалось проверить холдеров для токена {board_id[:10]}... - пропускаем")
+                    continue
+                elif holders_count >= 10:  # Порог для ачивки "They Lovin' It"
+                    print(f"   ❌ Токен {board_id[:10]}... уже имеет {holders_count} холдеров - пропускаем")
+                    # Удаляем токен из файла, так как ачивка уже может быть получена
+                    self.data_manager.remove_token(board_id)
+                    continue
+                else:
+                    print(f"   ✅ Токен {board_id[:10]}... подходит для покупок (холдеров: {holders_count})")
+                    filtered_tokens.append(board_id)
+            
+            # Берем нужное количество токенов
+            if len(filtered_tokens) <= count:
+                available_tokens = filtered_tokens
+            else:
+                available_tokens = random.sample(filtered_tokens, count)
+            
+            print(f"📋 Выбрано {len(available_tokens)} токенов для покупок")
             
             # Создаем HTML-ссылки на токены
             links = []
-            for board_id in available_tokens[:count]:
+            for board_id in available_tokens:
                 links.append(f'<a href="https://phi.box/board/{board_id}?referrer={exclude_wallet}">{board_id}</a>')
             
             return links
@@ -676,7 +920,7 @@ https://phi.box/board/5ced1c01-dca1-4021-8a9d-870955020444
         user_data = self.users_data.get(user_id, UserData([], []))
         
         if wallet_index >= len(user_data.wallet_addresses):
-            await query.edit_message_text("❌ Ошибка: неверный индекс кошелька")
+            await query.edit_message_text(self.get_text(user_id, 'error_wallet_index'))
             return
         
         wallet_address = user_data.wallet_addresses[wallet_index]
@@ -714,26 +958,18 @@ https://phi.box/board/5ced1c01-dca1-4021-8a9d-870955020444
             self.save_users_data()
             
             links_text = "\n".join([f"• {link}" for link in profile_links])
-            message = f"""🔄 Обновленные ссылки для подписки
-
-Подпишитесь на эти профили для получения {remaining} фолловеров:
-
-{links_text}
-
-После подписки нажмите "Готово"."""
+            message = self.get_text(user_id, 'refresh_links_followers', remaining=remaining, links=links_text)
             
             keyboard = [
-                [InlineKeyboardButton("🔄 Обновить", callback_data=f"followers_refresh_{wallet_index}")],
-                [InlineKeyboardButton("✅ Готово", callback_data=f"followers_done_{wallet_index}")],
-                [InlineKeyboardButton("❌ Отмена", callback_data="followers")]
+                [InlineKeyboardButton(self.get_text(user_id, 'refresh'), callback_data=f"followers_refresh_{wallet_index}")],
+                [InlineKeyboardButton(self.get_text(user_id, 'done'), callback_data=f"followers_done_{wallet_index}")],
+                [InlineKeyboardButton(self.get_text(user_id, 'cancel'), callback_data="followers")]
             ]
         else:
-            message = f"""❌ Недостаточно адресов
-
-В системе недостаточно адресов для генерации ссылок."""
+            message = self.get_text(user_id, 'insufficient_addresses_system')
             
             keyboard = [
-                [InlineKeyboardButton("← Назад", callback_data="followers")]
+                [InlineKeyboardButton(self.get_text(user_id, 'back'), callback_data="followers")]
             ]
         
         await query.edit_message_text(
@@ -749,7 +985,7 @@ https://phi.box/board/5ced1c01-dca1-4021-8a9d-870955020444
         user_data = self.users_data.get(user_id, UserData([], []))
         
         if wallet_index >= len(user_data.wallet_addresses):
-            await query.edit_message_text("❌ Ошибка: неверный индекс кошелька")
+            await query.edit_message_text(self.get_text(user_id, 'error_wallet_index'))
             return
         
         wallet_address = user_data.wallet_addresses[wallet_index]
@@ -762,13 +998,10 @@ https://phi.box/board/5ced1c01-dca1-4021-8a9d-870955020444
         achievement = self.api_client.get_trendsetter_achievement(wallet_address)
         
         if not achievement:
-            message = f"""❌ Ошибка проверки ачивки
-
-Не удалось проверить выполнение ачивки.
-Попробуйте позже."""
+            message = self.get_text(user_id, 'error_achievement_check_general')
             
             keyboard = [
-                [InlineKeyboardButton("← Назад", callback_data="followers")]
+                [InlineKeyboardButton(self.get_text(user_id, 'back'), callback_data="followers")]
             ]
         elif achievement['completed']:
             # Ачивка выполнена - проверяем, есть ли адрес в общем списке
@@ -776,26 +1009,19 @@ https://phi.box/board/5ced1c01-dca1-4021-8a9d-870955020444
             
             if not is_in_global_list:
                 self.add_wallet_to_global_list(wallet_address)
-                message = f"""🎉 Поздравляем!
-
-Ачивка "Trendsetter" успешно выполнена для адреса:
-{wallet_address}
-
-Ваш адрес добавлен в общий список для помощи другим пользователям.
-Выполнено заданий: {user_data.completed_followers_tasks}"""
+                message = self.get_text(user_id, 'achievement_success',
+                                      achievement_name='Trendsetter', wallet_address=wallet_address,
+                                      completed_tasks=user_data.completed_followers_tasks)
             else:
-                message = f"""🎉 Поздравляем!
-
-Ачивка "Trendsetter" успешно выполнена для адреса:
-{wallet_address}
-
-Выполнено заданий: {user_data.completed_followers_tasks}"""
+                message = self.get_text(user_id, 'achievement_success_simple',
+                                      achievement_name='Trendsetter', wallet_address=wallet_address,
+                                      completed_tasks=user_data.completed_followers_tasks)
             
             user_data.completed_followers_tasks += 1
             self.save_users_data()
             
             keyboard = [
-                [InlineKeyboardButton("← Главное меню", callback_data="back_to_main")]
+                [InlineKeyboardButton(self.get_text(user_id, 'main_menu'), callback_data="back_to_main")]
             ]
         else:
             # Ачивка еще не выполнена - проверяем конкретные подписки
@@ -803,29 +1029,22 @@ https://phi.box/board/5ced1c01-dca1-4021-8a9d-870955020444
     
     async def handle_followers_continue(self, query, wallet_index: int):
         """Обрабатывает продолжение помощи другим пользователям"""
+        user_id = query.from_user.id
         # Генерируем случайные ссылки для помощи другим
         available_wallets = self.data_manager.get_random_wallets(5)
         
         if available_wallets:
             links_text = "\n".join([f"• <a href=\"https://phi.box/profile/{wallet}\">{wallet}</a>" for wallet in available_wallets])
-            message = f"""🤝 Помощь другим пользователям
-
-Подпишитесь на эти профили, чтобы помочь другим получить ачивку:
-
-{links_text}
-
-Спасибо за помощь! 🙏"""
+            message = self.get_text(user_id, 'help_others_followers', links=links_text)
             
             keyboard = [
-                [InlineKeyboardButton("← Главное меню", callback_data="back_to_main")]
+                [InlineKeyboardButton(self.get_text(user_id, 'main_menu'), callback_data="back_to_main")]
             ]
         else:
-            message = f"""❌ Нет доступных адресов
-
-В системе пока нет других адресов для помощи."""
+            message = self.get_text(user_id, 'no_available_addresses')
             
             keyboard = [
-                [InlineKeyboardButton("← Главное меню", callback_data="back_to_main")]
+                [InlineKeyboardButton(self.get_text(user_id, 'main_menu'), callback_data="back_to_main")]
             ]
         
         await query.edit_message_text(
@@ -841,7 +1060,7 @@ https://phi.box/board/5ced1c01-dca1-4021-8a9d-870955020444
         user_data = self.users_data.get(user_id, UserData([], []))
         
         if wallet_index >= len(user_data.wallet_addresses):
-            await query.edit_message_text("❌ Ошибка: неверный индекс кошелька")
+            await query.edit_message_text(self.get_text(user_id, 'error_wallet_index'))
             return
         
         wallet_address = user_data.wallet_addresses[wallet_index]
@@ -879,26 +1098,18 @@ https://phi.box/board/5ced1c01-dca1-4021-8a9d-870955020444
             self.save_users_data()
             
             links_text = "\n".join([f"• {link}" for link in token_links])
-            message = f"""🔄 Обновленные ссылки для покупки токенов
-
-Купите токены по этим ссылкам для получения {remaining} холдеров:
-
-{links_text}
-
-После покупки нажмите "Готово"."""
+            message = self.get_text(user_id, 'refresh_links_tokens', remaining=remaining, links=links_text)
             
             keyboard = [
-                [InlineKeyboardButton("🔄 Обновить", callback_data=f"token_refresh_{wallet_index}")],
-                [InlineKeyboardButton("✅ Готово", callback_data=f"token_done_{wallet_index}")],
-                [InlineKeyboardButton("❌ Отмена", callback_data="token_holders")]
+                [InlineKeyboardButton(self.get_text(user_id, 'refresh'), callback_data=f"token_refresh_{wallet_index}")],
+                [InlineKeyboardButton(self.get_text(user_id, 'done'), callback_data=f"token_done_{wallet_index}")],
+                [InlineKeyboardButton(self.get_text(user_id, 'cancel'), callback_data="token_holders")]
             ]
         else:
-            message = f"""❌ Недостаточно токенов
-
-В системе недостаточно токенов для генерации ссылок."""
+            message = self.get_text(user_id, 'insufficient_tokens_system')
             
             keyboard = [
-                [InlineKeyboardButton("← Назад", callback_data="token_holders")]
+                [InlineKeyboardButton(self.get_text(user_id, 'back'), callback_data="token_holders")]
             ]
         
         await query.edit_message_text(
@@ -914,7 +1125,7 @@ https://phi.box/board/5ced1c01-dca1-4021-8a9d-870955020444
         user_data = self.users_data.get(user_id, UserData([], []))
         
         if wallet_index >= len(user_data.wallet_addresses):
-            await query.edit_message_text("❌ Ошибка: неверный индекс кошелька")
+            await query.edit_message_text(self.get_text(user_id, 'error_wallet_index'))
             return
         
         wallet_address = user_data.wallet_addresses[wallet_index]
@@ -923,13 +1134,10 @@ https://phi.box/board/5ced1c01-dca1-4021-8a9d-870955020444
         achievement = self.api_client.get_token_holders_achievement(wallet_address)
         
         if not achievement:
-            message = f"""❌ Ошибка проверки ачивки
-
-Не удалось проверить выполнение ачивки.
-Попробуйте позже."""
+            message = self.get_text(user_id, 'error_achievement_check_general')
             
             keyboard = [
-                [InlineKeyboardButton("← Назад", callback_data="token_holders")]
+                [InlineKeyboardButton(self.get_text(user_id, 'back'), callback_data="token_holders")]
             ]
         elif achievement['completed']:
             # Ачивка выполнена - проверяем, есть ли адрес в общем списке
@@ -937,26 +1145,19 @@ https://phi.box/board/5ced1c01-dca1-4021-8a9d-870955020444
             
             if not is_in_global_list:
                 self.add_wallet_to_global_list(wallet_address)
-                message = f"""🎉 Поздравляем!
-
-Ачивка "They Lovin' It" успешно выполнена для адреса:
-{wallet_address}
-
-Ваш адрес добавлен в общий список для помощи другим пользователям.
-Выполнено заданий: {user_data.completed_token_tasks}"""
+                message = self.get_text(user_id, 'achievement_success',
+                                      achievement_name="They Lovin' It", wallet_address=wallet_address,
+                                      completed_tasks=user_data.completed_token_tasks)
             else:
-                message = f"""🎉 Поздравляем!
-
-Ачивка "They Lovin' It" успешно выполнена для адреса:
-{wallet_address}
-
-Выполнено заданий: {user_data.completed_token_tasks}"""
+                message = self.get_text(user_id, 'achievement_success_simple',
+                                      achievement_name="They Lovin' It", wallet_address=wallet_address,
+                                      completed_tasks=user_data.completed_token_tasks)
             
             user_data.completed_token_tasks += 1
             self.save_users_data()
             
             keyboard = [
-                [InlineKeyboardButton("← Главное меню", callback_data="back_to_main")]
+                [InlineKeyboardButton(self.get_text(user_id, 'main_menu'), callback_data="back_to_main")]
             ]
         else:
             # Ачивка еще не выполнена - проверяем конкретные покупки
@@ -964,29 +1165,22 @@ https://phi.box/board/5ced1c01-dca1-4021-8a9d-870955020444
     
     async def handle_token_continue(self, query, wallet_index: int):
         """Обрабатывает продолжение помощи другим пользователям с токенами"""
+        user_id = query.from_user.id
         # Генерируем случайные ссылки на токены для помощи другим
         available_tokens = self.data_manager.get_random_tokens(5)
         
         if available_tokens:
             links_text = "\n".join([f"• <a href=\"https://phi.box/board/{board_id}\">{board_id}</a>" for board_id in available_tokens])
-            message = f"""🤝 Помощь другим пользователям
-
-Купите токены по этим ссылкам, чтобы помочь другим получить ачивку:
-
-{links_text}
-
-Спасибо за помощь! 🙏"""
+            message = self.get_text(user_id, 'help_others_tokens', links=links_text)
             
             keyboard = [
-                [InlineKeyboardButton("← Главное меню", callback_data="back_to_main")]
+                [InlineKeyboardButton(self.get_text(user_id, 'main_menu'), callback_data="back_to_main")]
             ]
         else:
-            message = f"""❌ Нет доступных токенов
-
-В системе пока нет других токенов для помощи."""
+            message = self.get_text(user_id, 'no_available_tokens')
             
             keyboard = [
-                [InlineKeyboardButton("← Главное меню", callback_data="back_to_main")]
+                [InlineKeyboardButton(self.get_text(user_id, 'main_menu'), callback_data="back_to_main")]
             ]
         
         await query.edit_message_text(
@@ -1008,30 +1202,23 @@ https://phi.box/board/5ced1c01-dca1-4021-8a9d-870955020444
             # Если нет сохраненных данных, проверяем ачивку
             achievement = self.api_client.get_token_holders_achievement(user_wallet)
             if not achievement:
-                message = f"""❌ Ошибка проверки ачивки
-
-Не удалось проверить выполнение ачивки.
-Попробуйте позже."""
+                message = self.get_text(user_id, 'error_achievement_check_general')
                 
                 keyboard = [
-                    [InlineKeyboardButton("← Назад", callback_data="token_holders")]
+                    [InlineKeyboardButton(self.get_text(user_id, 'back'), callback_data="token_holders")]
                 ]
             else:
                 remaining = achievement['remaining']
-                message = f"""⏳ Ачивка еще не выполнена
-
-Осталось получить: {remaining} холдеров
-
-Возможно, нужно подождать некоторое время для обновления данных.
-Попробуйте проверить еще раз через 30 секунд."""
+                message = self.get_text(user_id, 'achievement_not_completed', 
+                                      remaining=remaining, type=self.get_text(user_id, 'holders_type'))
                 
                 keyboard = [
-                    [InlineKeyboardButton("🔄 Проверить снова", callback_data=f"token_done_{wallet_index}")],
-                    [InlineKeyboardButton("← Назад", callback_data="token_holders")]
+                    [InlineKeyboardButton(self.get_text(user_id, 'refresh'), callback_data=f"token_done_{wallet_index}")],
+                    [InlineKeyboardButton(self.get_text(user_id, 'back'), callback_data="token_holders")]
                 ]
         else:
             # Проверяем конкретные покупки через API
-            await query.edit_message_text("🔍 Проверяем покупки токенов...")
+            await query.edit_message_text(self.get_text(user_id, 'checking_purchases'))
             
             # Проверяем каждый токен
             purchase_results = self.api_client.check_multiple_token_purchases(target_board_ids, user_wallet)
@@ -1051,18 +1238,11 @@ https://phi.box/board/5ced1c01-dca1-4021-8a9d-870955020444
                         target_board_ids=target_board_ids
                     )
                 
-                message = f"""⏳ Данные еще не обновились
-
-API показывает, что вы пока не купили ни одного из {len(target_board_ids)} токенов.
-
-Если вы уверены, что купили все токены, можете закрыть это меню.
-Мы будем проверять каждые 5 минут и уведомим вас, когда данные обновятся.
-
-Максимум проверок: 30 (2.5 часа)"""
+                message = self.get_text(user_id, 'data_not_updated', count=len(target_board_ids))
                 
                 keyboard = [
-                    [InlineKeyboardButton("🔄 Проверить снова", callback_data=f"token_done_{wallet_index}")],
-                    [InlineKeyboardButton("← Назад", callback_data="token_holders")]
+                    [InlineKeyboardButton(self.get_text(user_id, 'refresh'), callback_data=f"token_done_{wallet_index}")],
+                    [InlineKeyboardButton(self.get_text(user_id, 'back'), callback_data="token_holders")]
                 ]
                 
                 await query.edit_message_text(
@@ -1085,52 +1265,35 @@ API показывает, что вы пока не купили ни одног
                     is_in_global_list = user_wallet in self.data_manager.read_wallets()
                     if not is_in_global_list:
                         self.add_wallet_to_global_list(user_wallet)
-                        message = f"""🎉 Поздравляем!
-
-Ачивка "They Lovin' It" успешно выполнена для адреса:
-{user_wallet}
-
-Ваш адрес добавлен в общий список для помощи другим пользователям.
-Выполнено заданий: {user_data.completed_token_tasks}"""
+                        message = self.get_text(user_id, 'achievement_success',
+                                              achievement_name="They Lovin' It", wallet_address=user_wallet,
+                                              completed_tasks=user_data.completed_token_tasks)
                     else:
-                        message = f"""🎉 Поздравляем!
-
-Ачивка "They Lovin' It" успешно выполнена для адреса:
-{user_wallet}
-
-Выполнено заданий: {user_data.completed_token_tasks}"""
+                        message = self.get_text(user_id, 'achievement_success_simple',
+                                              achievement_name="They Lovin' It", wallet_address=user_wallet,
+                                              completed_tasks=user_data.completed_token_tasks)
                     
                     keyboard = [
-                        [InlineKeyboardButton("← Главное меню", callback_data="back_to_main")]
+                        [InlineKeyboardButton(self.get_text(user_id, 'main_menu'), callback_data="back_to_main")]
                     ]
                 else:
-                    message = f"""✅ Покупки выполнены!
-
-Вы успешно купили все {len(purchased)} токенов.
-Выполнено заданий: {user_data.completed_token_tasks}
-
-Ачивка может обновиться через некоторое время."""
+                    message = self.get_text(user_id, 'all_purchases_complete', 
+                                          count=len(purchased), completed_tasks=user_data.completed_token_tasks)
                     
                     keyboard = [
-                        [InlineKeyboardButton("← Главное меню", callback_data="back_to_main")]
+                        [InlineKeyboardButton(self.get_text(user_id, 'main_menu'), callback_data="back_to_main")]
                     ]
             else:
                 # Есть некупленные токены
                 not_purchased_links = [f'<a href="https://phi.box/board/{board_id}?referrer={user_wallet}">{board_id}</a>' for board_id in not_purchased]
                 links_text = "\n".join([f"• {link}" for link in not_purchased_links])
                 
-                message = f"""⚠️ Не все покупки выполнены
-
-Вы купили {len(purchased)} из {len(target_board_ids)} токенов.
-
-Осталось купить:
-{links_text}
-
-После покупки нажмите "Готово" еще раз."""
+                message = self.get_text(user_id, 'not_all_purchases', 
+                                      purchased=len(purchased), total=len(target_board_ids), links=links_text)
                 
                 keyboard = [
-                    [InlineKeyboardButton("✅ Готово", callback_data=f"token_done_{wallet_index}")],
-                    [InlineKeyboardButton("← Назад", callback_data="token_holders")]
+                    [InlineKeyboardButton(self.get_text(user_id, 'done'), callback_data=f"token_done_{wallet_index}")],
+                    [InlineKeyboardButton(self.get_text(user_id, 'back'), callback_data="token_holders")]
                 ]
         
         await query.edit_message_text(
@@ -1152,30 +1315,23 @@ API показывает, что вы пока не купили ни одног
             # Если нет сохраненных данных, проверяем ачивку
             achievement = self.api_client.get_trendsetter_achievement(user_wallet)
             if not achievement:
-                message = f"""❌ Ошибка проверки ачивки
-
-Не удалось проверить выполнение ачивки.
-Попробуйте позже."""
+                message = self.get_text(user_id, 'error_achievement_check_general')
                 
                 keyboard = [
-                    [InlineKeyboardButton("← Назад", callback_data="followers")]
+                    [InlineKeyboardButton(self.get_text(user_id, 'back'), callback_data="followers")]
                 ]
             else:
                 remaining = achievement['remaining']
-                message = f"""⏳ Ачивка еще не выполнена
-
-Осталось получить: {remaining} фолловеров
-
-Возможно, нужно подождать некоторое время для обновления данных.
-Попробуйте проверить еще раз через 30 секунд."""
+                message = self.get_text(user_id, 'achievement_not_completed', 
+                                      remaining=remaining, type=self.get_text(user_id, 'followers_type'))
                 
                 keyboard = [
-                    [InlineKeyboardButton("🔄 Проверить снова", callback_data=f"followers_done_{wallet_index}")],
-                    [InlineKeyboardButton("← Назад", callback_data="followers")]
+                    [InlineKeyboardButton(self.get_text(user_id, 'refresh'), callback_data=f"followers_done_{wallet_index}")],
+                    [InlineKeyboardButton(self.get_text(user_id, 'back'), callback_data="followers")]
                 ]
         else:
             # Проверяем конкретные подписки через API
-            await query.edit_message_text("🔍 Проверяем подписки...")
+            await query.edit_message_text(self.get_text(user_id, 'checking_followers'))
             
             # Проверяем каждый адрес
             follow_results = self.api_client.check_multiple_followers(target_addresses, user_wallet)
@@ -1195,18 +1351,11 @@ API показывает, что вы пока не купили ни одног
                         target_addresses=target_addresses
                     )
                 
-                message = f"""⏳ Данные еще не обновились
-
-API показывает, что вы пока не подписались ни на кого из {len(target_addresses)} профилей.
-
-Если вы уверены, что подписались на всех, можете закрыть это меню.
-Мы будем проверять каждые 5 минут и уведомим вас, когда данные обновятся.
-
-Максимум проверок: 30 (2.5 часа)"""
+                message = self.get_text(user_id, 'data_not_updated_followers', count=len(target_addresses))
                 
                 keyboard = [
-                    [InlineKeyboardButton("🔄 Проверить снова", callback_data=f"followers_done_{wallet_index}")],
-                    [InlineKeyboardButton("← Назад", callback_data="followers")]
+                    [InlineKeyboardButton(self.get_text(user_id, 'refresh'), callback_data=f"followers_done_{wallet_index}")],
+                    [InlineKeyboardButton(self.get_text(user_id, 'back'), callback_data="followers")]
                 ]
                 
                 await query.edit_message_text(
@@ -1229,54 +1378,36 @@ API показывает, что вы пока не подписались ни 
                     is_in_global_list = user_wallet in self.data_manager.read_wallets()
                     if not is_in_global_list:
                         self.add_wallet_to_global_list(user_wallet)
-                        message = f"""🎉 Поздравляем!
-
-Ачивка "Trendsetter" успешно выполнена для адреса:
-{user_wallet}
-
-Ваш адрес добавлен в общий список для помощи другим пользователям.
-Выполнено заданий: {user_data.completed_followers_tasks}"""
+                        message = self.get_text(user_id, 'achievement_success',
+                                              achievement_name='Trendsetter', wallet_address=user_wallet,
+                                              completed_tasks=user_data.completed_followers_tasks)
                     else:
-                        message = f"""🎉 Поздравляем!
-
-Ачивка "Trendsetter" успешно выполнена для адреса:
-{user_wallet}
-
-Выполнено заданий: {user_data.completed_followers_tasks}"""
+                        message = self.get_text(user_id, 'achievement_success_simple',
+                                              achievement_name='Trendsetter', wallet_address=user_wallet,
+                                              completed_tasks=user_data.completed_followers_tasks)
                     
                     keyboard = [
-                        [InlineKeyboardButton("← Главное меню", callback_data="back_to_main")]
+                        [InlineKeyboardButton(self.get_text(user_id, 'main_menu'), callback_data="back_to_main")]
                     ]
                 else:
-                    message = f"""✅ Подписки выполнены!
-
-Вы успешно подписались на все {len(followed)} профилей.
-Выполнено заданий: {user_data.completed_followers_tasks}
-
-Ачивка может обновиться через некоторое время."""
+                    message = self.get_text(user_id, 'all_followers_complete', 
+                                          count=len(followed), completed_tasks=user_data.completed_followers_tasks)
                     
                     keyboard = [
-                        [InlineKeyboardButton("← Главное меню", callback_data="back_to_main")]
+                        [InlineKeyboardButton(self.get_text(user_id, 'main_menu'), callback_data="back_to_main")]
                     ]
             else:
                 # Есть неподписанные адреса - предлагаем фоновую проверку
                 not_followed_links = [f'<a href="https://phi.box/profile/{addr}">{addr}</a>' for addr in not_followed]
                 links_text = "\n".join([f"• {link}" for link in not_followed_links])
                 
-                message = f"""⚠️ Не все подписки выполнены
-
-Вы подписались на {len(followed)} из {len(target_addresses)} профилей.
-
-Осталось подписаться на:
-{links_text}
-
-Если вы уверены, что подписались на всех, можете закрыть это меню. 
-Мы будем проверять каждые 5 минут и уведомим вас, когда данные обновятся."""
+                message = self.get_text(user_id, 'not_all_followers', 
+                                      followed=len(followed), total=len(target_addresses), links=links_text)
                 
                 keyboard = [
-                    [InlineKeyboardButton("✅ Готово", callback_data=f"followers_done_{wallet_index}")],
-                    [InlineKeyboardButton("🔄 Проверить снова", callback_data=f"followers_done_{wallet_index}")],
-                    [InlineKeyboardButton("← Назад", callback_data="followers")]
+                    [InlineKeyboardButton(self.get_text(user_id, 'done'), callback_data=f"followers_done_{wallet_index}")],
+                    [InlineKeyboardButton(self.get_text(user_id, 'refresh'), callback_data=f"followers_done_{wallet_index}")],
+                    [InlineKeyboardButton(self.get_text(user_id, 'back'), callback_data="followers")]
                 ]
         
         await query.edit_message_text(
@@ -1300,6 +1431,93 @@ API показывает, что вы пока не подписались ни 
             
         except Exception as e:
             print(f"Ошибка добавления адреса в общий список: {e}")
+    
+    def is_achievement_notification_sent(self, user_id: int, wallet_address: str, achievement_name: str) -> bool:
+        """Проверяет, было ли уже отправлено уведомление о получении ачивки"""
+        user_data = self.users_data.get(user_id)
+        if not user_data or not user_data.sent_achievement_notifications:
+            return False
+        
+        achievement_notifications = user_data.sent_achievement_notifications.get(achievement_name, [])
+        return wallet_address in achievement_notifications
+    
+    def mark_achievement_notification_sent(self, user_id: int, wallet_address: str, achievement_name: str):
+        """Отмечает, что уведомление о получении ачивки было отправлено"""
+        user_data = self.users_data.get(user_id)
+        if not user_data:
+            return
+        
+        if not user_data.sent_achievement_notifications:
+            user_data.sent_achievement_notifications = {}
+        
+        if achievement_name not in user_data.sent_achievement_notifications:
+            user_data.sent_achievement_notifications[achievement_name] = []
+        
+        if wallet_address not in user_data.sent_achievement_notifications[achievement_name]:
+            user_data.sent_achievement_notifications[achievement_name].append(wallet_address)
+            self.save_users_data()
+    
+    def clear_achievement_notifications(self, user_id: int, achievement_name: str = None):
+        """Очищает историю отправленных уведомлений о получении ачивок"""
+        user_data = self.users_data.get(user_id)
+        if not user_data:
+            return
+        
+        if not user_data.sent_achievement_notifications:
+            return
+        
+        if achievement_name:
+            # Очищаем уведомления для конкретной ачивки
+            if achievement_name in user_data.sent_achievement_notifications:
+                del user_data.sent_achievement_notifications[achievement_name]
+        else:
+            # Очищаем все уведомления
+            user_data.sent_achievement_notifications = {}
+        
+        self.save_users_data()
+        print(f"Очищены уведомления о получении ачивок для пользователя {user_id}")
+    
+    def cleanup_completed_achievements(self):
+        """Очищает файлы от адресов и токенов с уже полученными ачивками"""
+        print("🧹 Начинаем очистку файлов от адресов с полученными ачивками...")
+        
+        # Очищаем кошельки
+        wallets = self.data_manager.read_wallets()
+        wallets_to_remove = []
+        
+        print(f"📋 Проверяем {len(wallets)} кошельков...")
+        
+        for wallet in wallets:
+            achievement = self.api_client.get_trendsetter_achievement(wallet)
+            if achievement and achievement['completed']:
+                print(f"   ❌ Удаляем {wallet[:10]}... (ачивка Trendsetter получена - 10+ фолловеров)")
+                wallets_to_remove.append(wallet)
+        
+        for wallet in wallets_to_remove:
+            self.data_manager.remove_wallet(wallet)
+        
+        if wallets_to_remove:
+            print(f"🗑️ Удалено {len(wallets_to_remove)} кошельков из wallets.txt")
+        
+        # Очищаем токены
+        tokens = self.data_manager.read_tokens()
+        tokens_to_remove = []
+        
+        print(f"📋 Проверяем {len(tokens)} токенов...")
+        
+        for board_id in tokens:
+            holders_count = self.api_client.get_token_holders_count(board_id)
+            if holders_count is not None and holders_count >= 10:
+                print(f"   ❌ Удаляем {board_id[:10]}... ({holders_count} холдеров)")
+                tokens_to_remove.append(board_id)
+        
+        for board_id in tokens_to_remove:
+            self.data_manager.remove_token(board_id)
+        
+        if tokens_to_remove:
+            print(f"🗑️ Удалено {len(tokens_to_remove)} токенов из tokens.txt")
+        
+        print("✅ Очистка завершена!")
     
     def extract_addresses_from_links(self, links: List[str]) -> List[str]:
         """Извлекает адреса из HTML-ссылок на профили"""
@@ -1364,16 +1582,15 @@ API показывает, что вы пока не подписались ни 
             # Обновляем общий файл кошельков
             self.update_wallets_file()
         
-        message = f"""✅ Обработка завершена
-
-Валидных адресов: {len(valid_addresses)}
-Невалидных адресов: {len(invalid_addresses)}"""
+        message = self.get_text(user_id, 'processing_complete', 
+                               valid_count=len(valid_addresses),
+                               invalid_count=len(invalid_addresses))
         
         if invalid_addresses:
-            message += f"\n\n❌ Невалидные адреса:\n" + "\n".join(invalid_addresses)
+            message += "\n\n" + self.get_text(user_id, 'invalid_addresses', addresses="\n".join(invalid_addresses))
         
         keyboard = [
-            [InlineKeyboardButton("← Назад к данным", callback_data="my_data")]
+            [InlineKeyboardButton(self.get_text(user_id, 'back_to_data'), callback_data="my_data")]
         ]
         
         await update.message.reply_text(message, reply_markup=InlineKeyboardMarkup(keyboard))
@@ -1409,16 +1626,15 @@ API показывает, что вы пока не подписались ни 
             self.update_boards_file()
             self.update_tokens_file()
         
-        message = f"""✅ Обработка завершена
-
-Валидных бордов: {len(valid_boards)}
-Невалидных бордов: {len(invalid_boards)}"""
+        message = self.get_text(user_id, 'processing_complete_boards', 
+                               valid_count=len(valid_boards),
+                               invalid_count=len(invalid_boards))
         
         if invalid_boards:
-            message += f"\n\n❌ Невалидные борды:\n" + "\n".join(invalid_boards)
+            message += "\n\n" + self.get_text(user_id, 'invalid_boards', boards="\n".join(invalid_boards))
         
         keyboard = [
-            [InlineKeyboardButton("← Назад к данным", callback_data="my_data")]
+            [InlineKeyboardButton(self.get_text(user_id, 'back_to_data'), callback_data="my_data")]
         ]
         
         await update.message.reply_text(message, reply_markup=InlineKeyboardMarkup(keyboard))
@@ -1461,8 +1677,14 @@ API показывает, что вы пока не подписались ни 
         # Инициализируем систему фоновой проверки
         self.background_checker = BackgroundChecker(self)
         
-        # Добавляем обработчики
+        # Добавляем обработчики команд
         self.application.add_handler(CommandHandler("start", self.start_command))
+        self.application.add_handler(CommandHandler("language", self.language_command))
+        self.application.add_handler(CommandHandler("my", self.my_data_command))
+        self.application.add_handler(CommandHandler("trendsetter", self.trendsetter_command))
+        self.application.add_handler(CommandHandler("tokens", self.tokens_command))
+        
+        # Добавляем обработчики кнопок и сообщений
         self.application.add_handler(CallbackQueryHandler(self.button_callback))
         self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
         
@@ -1475,6 +1697,9 @@ API показывает, что вы пока не подписались ни 
         
         # Запускаем фоновую проверку в отдельной задаче
         background_task = loop.create_task(self.background_checker.start_background_checking())
+        
+        # Устанавливаем меню команд
+        loop.run_until_complete(self.set_bot_commands())
         
         try:
             # Запускаем бота

@@ -230,25 +230,31 @@ class PHIAPI:
             print(f"Ошибка получения фолловеров: {e}")
             return None
     
-    def get_token_holders_count(self, wallet_address: str, board_id: str = None) -> Optional[int]:
+    def get_token_holders_count(self, board_id: str) -> Optional[int]:
         """
-        Получает количество холдеров токена для адреса
+        Получает количество холдеров токена для борда
         
         Args:
-            wallet_address: Адрес кошелька
-            board_id: ID борда (не используется в текущей реализации)
+            board_id: ID борда
             
         Returns:
             Количество холдеров или None при ошибке
         """
         try:
-            achievement = self.get_token_holders_achievement(wallet_address)
-            if achievement:
-                return achievement.get('progress_count', 0)
-            return None
+            # Используем API для получения информации о борде
+            url = f"https://api.phi.box/board/{board_id}"
+            response = requests.get(url, timeout=10)
+            
+            if response.status_code == 200:
+                data = response.json()
+                # Предполагаем, что количество холдеров хранится в поле holders_count
+                return data.get('holders_count', 0)
+            else:
+                print(f"Ошибка API для борда {board_id}: {response.status_code}")
+                return None
                 
         except Exception as e:
-            print(f"Ошибка получения холдеров токена: {e}")
+            print(f"Ошибка получения холдеров токена для борда {board_id}: {e}")
             return None
     
     def check_followers_for_address(self, target_address: str, user_address: str) -> bool:

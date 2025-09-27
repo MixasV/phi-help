@@ -8,6 +8,58 @@
       "06546848-0841-4d5f-9915-9660e3d42e55"
     ],
     "completed_followers_tasks": 0,
-    "completed_token_tasks": 0
+    "completed_token_tasks": 0,
+    "language": "en"
+  },
+  "875247479": {
+    "wallet_addresses": [],
+    "board_addresses": [],
+    "completed_followers_tasks": 0,
+    "completed_token_tasks": 0,
+    "language": "ru"
+  },
+  "608431912": {
+    "wallet_addresses": [],
+    "board_addresses": [],
+    "completed_followers_tasks": 0,
+    "completed_token_tasks": 0,
+    "language": "ru"
+  },
+  "331659327": {
+    "wallet_addresses": [
+      "0x7F1b8E11F42AA58B3D0fb22f7A2b2631453F0867",
+      "0x7b628a09b34528e4077296cb1a409e69ff27c1f2",
+      "0x843ac5d01a3bee4386421e613e5f46c374da2b5a",
+      "0xd7bd0982b377f31b210325a51c3357c4012fda27",
+      "0xdfcb37bb83e50a1d05d2c7876959ede633622313",
+      "0x85f508d4373c1401492faaff460277e1cb27395b"
+    ],
+    "board_addresses": [
+      "e1f7de7c-7dee-4250-91af-c75628d7ec95",
+      "3c3c71c0-a28a-4340-9ac4-46dc1720e8f3",
+      "f8fbf71d-b66e-4151-adff-c1e4b8805034",
+      "cf5f77ba-4990-4db6-a666-ff4b11f4bb89",
+      "229785a5-5179-4178-8dc6-eb1809b3a65a",
+      "4ac16b56-d0b5-40aa-b721-34883ca0020d"
+    ],
+    "completed_followers_tasks": 0,
+    "completed_token_tasks": 0,
+    "language": "ru"
+  },
+  "7745515894": {
+    "wallet_addresses": [],
+    "board_addresses": [],
+    "completed_followers_tasks": 0,
+    "completed_token_tasks": 0,
+    "language": "ru"
+  },
+  "412246241": {
+    "wallet_addresses": [
+      "0x2A39FD94E139952C3958E69172bA918D8f533571"
+    ],
+    "board_addresses": [],
+    "completed_followers_tasks": 0,
+    "completed_token_tasks": 0,
+    "language": "ru"
   }
 }

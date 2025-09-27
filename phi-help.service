@@ -1,0 +1,26 @@
+[Unit]
+Description=PHI Help Bot
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/root/PHI-help
+ExecStart=/usr/bin/python3 /root/PHI-help/bot.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Environment variables
+Environment=PYTHONPATH=/root/PHI-help
+Environment=PYTHONUNBUFFERED=1
+
+# Security settings (упрощенные для root)
+NoNewPrivileges=false
+PrivateTmp=false
+
+[Install]
+WantedBy=multi-user.target
