@@ -1,0 +1,16 @@
+{
+  "235335704_0_followers": {
+    "user_id": 235335704,
+    "wallet_index": 0,
+    "wallet_address": "0xC7f9154a72524097B1323961F584f7047b875271",
+    "check_type": "followers",
+    "target_addresses": [
+      "0x05211b706BCe6a569D556faA5821237464f33001"
+    ],
+    "target_board_ids": [],
+    "attempts": 0,
+    "max_attempts": 30,
+    "created_at": "2025-09-27T09:12:26.403061",
+    "last_check": "2025-09-27T09:12:26.403062"
+  }
+}
