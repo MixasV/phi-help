@@ -230,6 +230,160 @@ class PHIAPI:
             print(f"Ошибка получения фолловеров: {e}")
             return None
     
+    def get_user_stats(self, wallet_address: str) -> Optional[Dict]:
+        """
+        Получает статистику пользователя (подписчики, подписки) с api.ethfollow.xyz
+        Использует endpoints /followers и /following для получения актуальных данных
+        
+        Args:
+            wallet_address: Адрес кошелька
+            
+        Returns:
+            Словарь со статистикой или None при ошибке
+        """
+        try:
+            # Получаем количество фолловеров
+            followers_count = self._get_followers_count(wallet_address)
+            if followers_count is None:
+                followers_count = 0
+            
+            # Получаем количество подписок (following)
+            following_count = self._get_following_count(wallet_address)
+            if following_count is None:
+                following_count = 0
+            
+            return {
+                'followers_count': followers_count,
+                'following_count': following_count
+            }
+                
+        except Exception as e:
+            print(f"Ошибка получения статистики пользователя: {e}")
+            return None
+    
+    def _get_followers_count(self, wallet_address: str) -> Optional[int]:
+        """Получает количество фолловеров через /followers endpoint"""
+        try:
+            url = f"http://api.ethfollow.xyz/api/v1/users/{wallet_address}/followers"
+            response = requests.get(url, timeout=30)
+            
+            if response.status_code == 200:
+                data = response.json()
+                followers = data.get('followers', [])
+                return len(followers)
+            else:
+                print(f"Ошибка получения фолловеров для {wallet_address}: {response.status_code}")
+                return None
+                
+        except Exception as e:
+            print(f"Ошибка получения фолловеров: {e}")
+            return None
+    
+    def _get_following_count(self, wallet_address: str) -> Optional[int]:
+        """Получает количество подписок через /following endpoint"""
+        try:
+            url = f"http://api.ethfollow.xyz/api/v1/users/{wallet_address}/following"
+            response = requests.get(url, timeout=30)
+            
+            if response.status_code == 200:
+                data = response.json()
+                following = data.get('following', [])
+                return len(following)
+            else:
+                print(f"Ошибка получения подписок для {wallet_address}: {response.status_code}")
+                return None
+                
+        except Exception as e:
+            print(f"Ошибка получения подписок: {e}")
+            return None
+    
+    def get_total_achievements_count(self, wallet_address: str) -> int:
+        """
+        Получает общее количество выполненных ачивок
+        
+        Args:
+            wallet_address: Адрес кошелька
+            
+        Returns:
+            Количество выполненных ачивок
+        """
+        try:
+            achievements = self.get_achievements(wallet_address)
+            if not achievements:
+                return 0
+            
+            completed_count = 0
+            for achievement in achievements:
+                if achievement.get('completed', False):
+                    completed_count += 1
+            
+            return completed_count
+                
+        except Exception as e:
+            print(f"Ошибка подсчета выполненных ачивок: {e}")
+            return 0
+    
+    def get_total_achievements_possible(self, wallet_address: str) -> int:
+        """
+        Получает общее количество возможных ачивок
+        
+        Args:
+            wallet_address: Адрес кошелька
+            
+        Returns:
+            Общее количество ачивок
+        """
+        try:
+            achievements = self.get_achievements(wallet_address)
+            if not achievements:
+                return 0
+            
+            return len(achievements)
+                
+        except Exception as e:
+            print(f"Ошибка подсчета общего количества ачивок: {e}")
+            return 0
+    
+    def get_social_butterfly_achievement(self, wallet_address: str) -> Optional[Dict]:
+        """
+        Получает информацию об ачивке Social Butterfly (achievement_id: 6)
+        
+        Args:
+            wallet_address: Адрес кошелька
+            
+        Returns:
+            Информация об ачивке или None при ошибке
+        """
+        try:
+            achievements = self.get_achievements(wallet_address)
+            if not achievements:
+                return None
+            
+            for achievement in achievements:
+                if achievement.get('achievement_id') == 6:  # Social Butterfly
+                    return {
+                        'completed': achievement.get('completed', False),
+                        'progress_count': achievement.get('progress_count', 0),
+                        'required_count': achievement.get('required_count', 10),
+                        'remaining': max(0, achievement.get('required_count', 10) - achievement.get('progress_count', 0)),
+                        'name': achievement.get('name', 'Social Butterfly'),
+                        'description': achievement.get('description', 'Follow 10 people on EFP')
+                    }
+            
+            # Если ачивка не найдена, возвращаем нулевой прогресс
+            return {
+                'completed': False,
+                'progress_count': 0,
+                'required_count': 10,
+                'remaining': 10,
+                'name': 'Social Butterfly',
+                'description': 'Follow 10 people on EFP'
+            }
+                
+        except Exception as e:
+            print(f"Ошибка получения ачивки Social Butterfly: {e}")
+            return None
+    
     def get_token_holders_count(self, board_id: str) -> Optional[int]:
         """
         Получает количество холдеров токена для борда
@@ -437,6 +591,94 @@ class PHIAPI:
             results[board_id] = self.check_token_purchase(board_id, user_address)
         
         return results
+    
+    
+    def get_social_butterfly_achievement(self, wallet_address: str) -> Optional[Dict]:
+        """
+        Получает информацию об ачивке Social Butterfly (achievement_id: 6)
+        
+        Args:
+            wallet_address: Адрес кошелька
+            
+        Returns:
+            Информация об ачивке или None при ошибке
+        """
+        try:
+            achievements = self.get_achievements(wallet_address)
+            if not achievements:
+                return None
+            
+            for achievement in achievements:
+                if achievement.get('achievement_id') == 6:  # Social Butterfly
+                    return {
+                        'completed': achievement.get('completed', False),
+                        'progress_count': achievement.get('progress_count', 0),
+                        'required_count': achievement.get('required_count', 10),
+                        'remaining': max(0, achievement.get('required_count', 10) - achievement.get('progress_count', 0)),
+                        'name': achievement.get('name', 'Social Butterfly'),
+                        'description': achievement.get('description', 'Follow 10 people on EFP')
+                    }
+            
+            # Если ачивка не найдена, возвращаем нулевой прогресс
+            return {
+                'completed': False,
+                'progress_count': 0,
+                'required_count': 10,
+                'remaining': 10,
+                'name': 'Social Butterfly',
+                'description': 'Follow 10 people on EFP'
+            }
+                
+        except Exception as e:
+            print(f"Ошибка получения ачивки Social Butterfly: {e}")
+            return None
+    
+    def get_total_achievements_count(self, wallet_address: str) -> int:
+        """
+        Получает общее количество выполненных ачивок
+        
+        Args:
+            wallet_address: Адрес кошелька
+            
+        Returns:
+            Количество выполненных ачивок
+        """
+        try:
+            achievements = self.get_achievements(wallet_address)
+            if not achievements:
+                return 0
+            
+            completed_count = 0
+            for achievement in achievements:
+                if achievement.get('completed', False):
+                    completed_count += 1
+            
+            return completed_count
+                
+        except Exception as e:
+            print(f"Ошибка подсчета выполненных ачивок: {e}")
+            return 0
+    
+    def get_total_achievements_possible(self, wallet_address: str) -> int:
+        """
+        Получает общее количество возможных ачивок
+        
+        Args:
+            wallet_address: Адрес кошелька
+            
+        Returns:
+            Общее количество ачивок
+        """
+        try:
+            achievements = self.get_achievements(wallet_address)
+            if not achievements:
+                return 0
+            
+            return len(achievements)
+                
+        except Exception as e:
+            print(f"Ошибка подсчета общего количества ачивок: {e}")
+            return 0
 
 # Пример использования
 if __name__ == "__main__":

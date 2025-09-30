@@ -2,6 +2,8 @@ import os
 import json
 import random
 import re
+import asyncio
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 from dataclasses import dataclass
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -22,10 +24,126 @@ class UserData:
     completed_token_tasks: int = 0      # Количество выполненных заданий по токенам
     sent_achievement_notifications: Dict[str, List[str]] = None  # Отправленные уведомления {achievement_name: [wallet_addresses]}
     language: str = 'ru'  # Язык пользователя (ru/en)
+    last_wallet_count: int = 0  # Количество кошельков при последнем обновлении кэша
+    followers_progress: Dict[str, Dict] = None  # Прогресс по фолловерам по кошельку {wallet: {count, counted_addresses}}
+    token_progress: Dict[str, Dict] = None      # Прогресс по токенам по кошельку {wallet: {count, counted_board_ids}}
     
     def __post_init__(self):
         if self.sent_achievement_notifications is None:
             self.sent_achievement_notifications = {}
+        if self.followers_progress is None:
+            self.followers_progress = {}
+        if self.token_progress is None:
+            self.token_progress = {}
+
+@dataclass
+class CachedStats:
+    """Кэшированная статистика пользователя"""
+    wallet_address: str
+    user_stats: Dict
+    total_achievements: int
+    total_achievements_possible: int
+    social_butterfly: Dict
+    trendsetter: Dict
+    they_lovin_it: Dict
+    cached_at: datetime
+    formatted_message: str
+    
+    def is_expired(self, max_age_minutes: int = 5) -> bool:
+        """Проверяет, истек ли кэш"""
+        return datetime.now() - self.cached_at > timedelta(minutes=max_age_minutes)
+
+class StatsCache:
+    """Менеджер кэша статистики"""
+    
+    def __init__(self):
+        self.cache: Dict[str, CachedStats] = {}
+        self.loading_queue: Dict[str, asyncio.Task] = {}  # Очередь загрузки
+        self.last_auto_refresh = datetime.now()
+        self.auto_refresh_interval = 20  # минут
+    
+    def get_cached_stats(self, wallet_address: str, compact: bool = False, max_age_minutes: int = 5) -> Optional[CachedStats]:
+        """Получает кэшированную статистику"""
+        cache_key = f"{wallet_address}_{compact}"
+        if cache_key in self.cache:
+            cached_stats = self.cache[cache_key]
+            if not cached_stats.is_expired(max_age_minutes):
+                return cached_stats
+            else:
+                # Удаляем устаревший кэш
+                del self.cache[cache_key]
+        return None
+    
+    def set_cached_stats(self, wallet_address: str, compact: bool, stats_data: Dict, formatted_message: str):
+        """Сохраняет статистику в кэш"""
+        cache_key = f"{wallet_address}_{compact}"
+        self.cache[cache_key] = CachedStats(
+            wallet_address=wallet_address,
+            user_stats=stats_data.get('user_stats'),
+            total_achievements=stats_data.get('total_achievements', 0),
+            total_achievements_possible=stats_data.get('total_achievements_possible', 0),
+            social_butterfly=stats_data.get('social_butterfly'),
+            trendsetter=stats_data.get('trendsetter'),
+            they_lovin_it=stats_data.get('they_lovin_it'),
+            cached_at=datetime.now(),
+            formatted_message=formatted_message
+        )
+    
+    def is_loading(self, wallet_address: str, compact: bool = False) -> bool:
+        """Проверяет, загружается ли статистика для адреса"""
+        cache_key = f"{wallet_address}_{compact}"
+        return cache_key in self.loading_queue
+    
+    def add_loading_task(self, wallet_address: str, compact: bool, task: asyncio.Task):
+        """Добавляет задачу загрузки в очередь"""
+        cache_key = f"{wallet_address}_{compact}"
+        self.loading_queue[cache_key] = task
+    
+    def remove_loading_task(self, wallet_address: str, compact: bool = False):
+        """Удаляет задачу загрузки из очереди"""
+        cache_key = f"{wallet_address}_{compact}"
+        if cache_key in self.loading_queue:
+            del self.loading_queue[cache_key]
+    
+    def should_auto_refresh(self) -> bool:
+        """Проверяет, нужно ли выполнить автоматическое обновление"""
+        return datetime.now() - self.last_auto_refresh > timedelta(minutes=self.auto_refresh_interval)
+    
+    def mark_auto_refresh_done(self):
+        """Отмечает, что автоматическое обновление выполнено"""
+        self.last_auto_refresh = datetime.now()
+    
+    def clear_expired_cache(self):
+        """Очищает устаревший кэш"""
+        expired_keys = []
+        for cache_key, cached_stats in self.cache.items():
+            if cached_stats.is_expired(20):  # 20 минут для автоочистки
+                expired_keys.append(cache_key)
+        
+        for key in expired_keys:
+            del self.cache[key]
+    
+    def clear_user_cache(self, wallet_addresses: List[str]):
+        """Очищает кэш для конкретных адресов кошельков"""
+        keys_to_remove = []
+        for cache_key in self.cache.keys():
+            for wallet_address in wallet_addresses:
+                if cache_key.startswith(f"{wallet_address}_"):
+                    keys_to_remove.append(cache_key)
+                    break
+        
+        for key in keys_to_remove:
+            del self.cache[key]
+        
+        print(f"🧹 Очищен кэш для {len(keys_to_remove)} записей")
+
+def group_buttons_in_rows(buttons, buttons_per_row=3):
+    """Группирует кнопки по указанному количеству в ряд"""
+    grouped = []
+    for i in range(0, len(buttons), buttons_per_row):
+        row = buttons[i:i + buttons_per_row]
+        grouped.append(row)
+    return grouped
 
 class PHIBot:
     def __init__(self):
@@ -34,6 +152,7 @@ class PHIBot:
         self.boards_file = os.getenv('BOARDS_FILE', 'boards.txt')
         self.tokens_file = os.getenv('TOKENS_FILE', 'tokens.txt')
         self.users_data_file = os.getenv('USERS_DATA_FILE', 'users_data.json')
+        self.user_stats_file = os.getenv('USER_STATS_FILE', 'user_stats.json')
         self.followers_threshold = int(os.getenv('FOLLOWERS_THRESHOLD', '10'))
         self.token_holders_threshold = int(os.getenv('TOKEN_HOLDERS_THRESHOLD', '10'))
         
@@ -43,6 +162,15 @@ class PHIBot:
         
         # Инициализируем систему фоновой проверки
         self.background_checker = None
+        
+        # Инициализируем кэш статистики
+        self.stats_cache = StatsCache()
+        # Файловое хранилище статистики для главного меню
+        self.user_stats_store: Dict[str, Dict] = self.load_user_stats_store()
+        # Последнее сообщение главного меню для каждого пользователя
+        self.user_main_menu_message_id: Dict[int, int] = {}
+        # Таски фонового обновления кэша по пользователям (для дедупликации)
+        self.user_cache_update_tasks: Dict[int, asyncio.Task] = {}
         
         # Загружаем данные пользователей
         self.users_data = self.load_users_data()
@@ -119,7 +247,20 @@ class PHIBot:
                 'refresh_links_tokens': '🔄 Обновленные ссылки для покупки токенов\n\nКупите токены по этим ссылкам для получения {remaining} холдеров:\n\n{links}\n\nПосле покупки нажмите "Готово".',
                 'refresh_links_followers': '🔄 Обновленные ссылки для подписки\n\nПодпишитесь на эти профили для получения {remaining} фолловеров:\n\n{links}\n\nПосле подписки нажмите "Готово".',
                 'followers_type': 'фолловеров',
-                'holders_type': 'холдеров'
+                'holders_type': 'холдеров',
+                'user_stats_title': '📊 Статистика пользователя\n\n👤 Адрес: {wallet_address}\n👥 Подписчики: {followers_count}\n📝 Подписки: {following_count}\n🏆 Выполнено ачивок: {total_achievements}\n\n🎯 Прогресс по ачивкам:\n{achievements_progress}',
+                'achievement_completed_icon': '✅',
+                'achievement_in_progress_icon': '⏳',
+                'achievement_progress_line': '{icon} {name}: {progress}/{required} ({remaining} осталось)',
+                'achievement_completed_line': '{icon} {name}: Выполнено!',
+                'social_butterfly': 'Social Butterfly',
+                'trendsetter': 'Trendsetter',
+                'they_lovin_it': 'They Lovin\' It',
+                'user_stats_compact': '📊 Статистика пользователя\n\n👤 Адрес: {wallet_address}\n👥 {followers_count}📝 {following_count} 🏆 {total_achievements}/{total_achievements_possible}\n\n{achievements_progress}',
+                'updating_data': '🔄 Обновляем данные...',
+                'wallet_label': '📊 Кошелек {index}',
+                'wallet_stats_label': '📊 Статистика кошелька {index}',
+                'more_wallets': '📊 ... и еще {count} кошельков'
             },
             'en': {
                 'welcome': '🤖 Welcome to PHI Helper Bot!\n\nYou can add your wallet addresses to complete achievements, as well as your boards.\n\n📊 Your statistics:\n• Wallet addresses: {wallet_count}\n• Boards: {board_count}\n\nChoose an action:',
@@ -184,7 +325,20 @@ class PHIBot:
                 'refresh_links_tokens': '🔄 Updated token purchase links\n\nBuy tokens using these links to get {remaining} holders:\n\n{links}\n\nAfter purchasing, press "Done".',
                 'refresh_links_followers': '🔄 Updated subscription links\n\nSubscribe to these profiles to get {remaining} followers:\n\n{links}\n\nAfter subscribing, press "Done".',
                 'followers_type': 'followers',
-                'holders_type': 'holders'
+                'holders_type': 'holders',
+                'user_stats_title': '📊 User Statistics\n\n👤 Address: {wallet_address}\n👥 Followers: {followers_count}\n📝 Following: {following_count}\n🏆 Completed achievements: {total_achievements}\n\n🎯 Achievement progress:\n{achievements_progress}',
+                'achievement_completed_icon': '✅',
+                'achievement_in_progress_icon': '⏳',
+                'achievement_progress_line': '{icon} {name}: {progress}/{required} ({remaining} remaining)',
+                'achievement_completed_line': '{icon} {name}: Completed!',
+                'social_butterfly': 'Social Butterfly',
+                'trendsetter': 'Trendsetter',
+                'they_lovin_it': 'They Lovin\' It',
+                'user_stats_compact': '📊 User Statistics\n\n👤 Address: {wallet_address}\n👥 {followers_count}📝 {following_count} 🏆 {total_achievements}/{total_achievements_possible}\n\n{achievements_progress}',
+                'updating_data': '🔄 Updating data...',
+                'wallet_label': '📊 Wallet {index}',
+                'wallet_stats_label': '📊 Wallet statistics {index}',
+                'more_wallets': '📊 ... and {count} more wallets'
             }
         }
     
@@ -207,7 +361,9 @@ class PHIBot:
                             board_addresses=user_data.get('board_addresses', []),
                             completed_followers_tasks=user_data.get('completed_followers_tasks', 0),
                             completed_token_tasks=user_data.get('completed_token_tasks', 0),
-                            language=user_data.get('language', 'ru')
+                            language=user_data.get('language', 'ru'),
+                            followers_progress=user_data.get('followers_progress', {}),
+                            token_progress=user_data.get('token_progress', {})
                         )
                         for user_id, user_data in data.items()
                     }
@@ -224,7 +380,9 @@ class PHIBot:
                     'board_addresses': user_data.board_addresses,
                     'completed_followers_tasks': user_data.completed_followers_tasks,
                     'completed_token_tasks': user_data.completed_token_tasks,
-                    'language': user_data.language
+                    'language': user_data.language,
+                    'followers_progress': user_data.followers_progress,
+                    'token_progress': user_data.token_progress
                 }
                 for user_id, user_data in self.users_data.items()
             }
@@ -232,13 +390,34 @@ class PHIBot:
                 json.dump(data, f, ensure_ascii=False, indent=2)
         except Exception as e:
             print(f"Ошибка сохранения данных пользователей: {e}")
+
+    def load_user_stats_store(self) -> Dict[str, Dict]:
+        """Загружает файл статистики для главного меню"""
+        try:
+            if os.path.exists(self.user_stats_file):
+                with open(self.user_stats_file, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+        except Exception as e:
+            print(f"Ошибка загрузки файла статистики: {e}")
+        return {}
+
+    def save_user_stats_store(self):
+        """Сохраняет файл статистики для главного меню"""
+        try:
+            with open(self.user_stats_file, 'w', encoding='utf-8') as f:
+                json.dump(self.user_stats_store, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"Ошибка сохранения файла статистики: {e}")
     
     def ensure_data_files(self):
         """Создает файлы данных если их нет"""
-        for file_path in [self.wallets_file, self.boards_file, self.tokens_file]:
+        for file_path in [self.wallets_file, self.boards_file, self.tokens_file, self.user_stats_file]:
             if not os.path.exists(file_path):
                 with open(file_path, 'w', encoding='utf-8') as f:
-                    f.write('')
+                    if file_path == self.user_stats_file:
+                        json.dump({}, f, ensure_ascii=False, indent=2)
+                    else:
+                        f.write('')
     
     def is_valid_ethereum_address(self, address: str) -> bool:
         """Проверяет валидность Ethereum адреса"""
@@ -275,7 +454,83 @@ class PHIBot:
         wallet_count = len(user_data.wallet_addresses)
         board_count = len(user_data.board_addresses)
         
-        return self.get_text(user_id, 'welcome', wallet_count=wallet_count, board_count=board_count)
+        # Базовое сообщение (уберем строку призыва к действию в конец)
+        welcome_text = self.get_text(user_id, 'welcome', wallet_count=wallet_count, board_count=board_count)
+        language = self.users_data.get(user_id, UserData([], [])).language
+        select_action = 'Выберите действие:' if language == 'ru' else 'Choose an action:'
+        base_message = welcome_text.replace(select_action, '').rstrip()
+        
+        # Если у пользователя есть адреса, добавляем статистику
+        if user_data.wallet_addresses:
+            # Всегда показываем не более 8 кошельков, чтобы влезало в сообщение
+            max_to_show = 8
+            # Проверяем, есть ли кэш для всех кошельков (не только первых 3)
+            has_cache = True
+            wallets_to_check = user_data.wallet_addresses
+            
+            for wallet in wallets_to_check:
+                cached_stats = self.stats_cache.get_cached_stats(wallet, True) or self.stats_cache.get_cached_stats(wallet, False)
+                if not cached_stats or cached_stats.is_expired(5):
+                    has_cache = False
+                    break
+            
+            if has_cache:
+                # Если есть кэш, показываем статистику
+                wallets_to_show = user_data.wallet_addresses[:max_to_show]
+                stats_messages = []
+                for wallet in wallets_to_show:
+                    cached_stats = self.stats_cache.get_cached_stats(wallet, True) or self.stats_cache.get_cached_stats(wallet, False)
+                    if cached_stats:
+                        wallet_stats = self._format_wallet_block(user_id, cached_stats.formatted_message)
+                        stats_messages.append(wallet_stats)
+                if len(user_data.wallet_addresses) > max_to_show:
+                    stats_messages.append(self.get_text(user_id, 'more_wallets', count=len(user_data.wallet_addresses) - max_to_show))
+                stats_message = '\n\n'.join(stats_messages)
+                return f"{base_message}\n\n{stats_message}\n\n{select_action}"
+            else:
+                # Если нет кэша, пробуем взять данные из файлового хранилища
+                user_key = str(user_id)
+                stats_messages = []
+                if user_key in self.user_stats_store and self.user_stats_store[user_key].get('wallets'):
+                    wallets_to_show = user_data.wallet_addresses[:max_to_show]
+                    for wallet in wallets_to_show:
+                        stored = self.user_stats_store[user_key]['wallets'].get(wallet)
+                        if stored and stored.get('formatted'):
+                            wallet_stats = self._format_wallet_block(user_id, stored['formatted'])
+                            stats_messages.append(wallet_stats)
+                    if len(user_data.wallet_addresses) > max_to_show:
+                        stats_messages.append(self.get_text(user_id, 'more_wallets', count=len(user_data.wallet_addresses) - max_to_show))
+                    if stats_messages:
+                        return f"{base_message}\n\n{'\n\n'.join(stats_messages)}\n\n{select_action}"
+                # Если и в файле нет — показываем заглушку
+                loading_message = self.get_text(user_id, 'updating_data')
+                return f"{base_message}\n\n{loading_message}\n\n{select_action}"
+        
+        return f"{base_message}\n\n{select_action}"
+
+    def _format_wallet_block(self, user_id: int, formatted_message: str) -> str:
+        """Форматирует блок кошелька: ставит адрес заголовком, убирает лишние пустые строки внутри блока, сохраняет отступы между кошельками"""
+        try:
+            language = self.users_data.get(user_id, UserData([], [])).language
+            # Определяем исходный заголовок
+            header_src = "📊 Статистика пользователя" if language == 'ru' else "📊 User Statistics"
+            # Удаляем исходный заголовок полностью, не дублируем адрес
+            body = formatted_message.replace(header_src, "")
+            # Убираем все пустые строки внутри блока
+            compact_lines = []
+            for line in body.splitlines():
+                if len(line.strip()) == 0:
+                    continue
+                compact_lines.append(line)
+            # Убираем возможную пустую строку в начале
+            while compact_lines and len(compact_lines[0].strip()) == 0:
+                compact_lines.pop(0)
+            # Убираем пустую строку в конце блока
+            while compact_lines and len(compact_lines[-1].strip()) == 0:
+                compact_lines.pop()
+            return "\n".join(compact_lines)
+        except Exception:
+            return formatted_message
     
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик команды /start"""
@@ -293,9 +548,41 @@ class PHIBot:
             await self.show_language_selection(update)
         else:
             # Показываем главное меню
+            user_data = self.users_data[user_id]
+            
+            # Показываем меню сразу с доступными данными
             message = self.get_main_menu_message(user_id)
             keyboard = self.get_main_menu_keyboard(user_id)
-            await update.message.reply_text(message, reply_markup=keyboard)
+            sent = await update.message.reply_text(message, reply_markup=keyboard, parse_mode='HTML')
+            # Сохраняем id сообщения главного меню
+            if sent and getattr(sent, 'message_id', None):
+                self.user_main_menu_message_id[user_id] = sent.message_id
+            
+        # Если есть кошельки, при необходимости запускаем фоновое обновление кэша без ожидания
+            if user_data.wallet_addresses:
+                use_compact = len(user_data.wallet_addresses) >= 5
+                
+                # Проверяем, нужно ли обновить кэш
+                needs_update = False
+                if use_compact:
+                    wallets_to_check = user_data.wallet_addresses[:3]
+                else:
+                    wallets_to_check = user_data.wallet_addresses
+                
+                for wallet in wallets_to_check:
+                    cached_stats = self.stats_cache.get_cached_stats(wallet, use_compact)
+                    if not cached_stats or cached_stats.is_expired(5):
+                        needs_update = True
+                        break
+                
+                if needs_update:
+                    # Запускаем фоновое обновление кэша (дедупликация по пользователю)
+                    existing = self.user_cache_update_tasks.get(user_id)
+                    if existing and not existing.done():
+                        pass
+                    else:
+                        task = self.application.create_task(self.background_cache_update(user_id, use_compact))
+                        self.user_cache_update_tasks[user_id] = task
     
     async def show_language_selection(self, update: Update):
         """Показывает меню выбора языка"""
@@ -470,10 +757,39 @@ class PHIBot:
     async def show_main_menu(self, query):
         """Показывает главное меню"""
         user_id = query.from_user.id
+        user_data = self.users_data.get(user_id, UserData([], []))
+        
+        # Показываем меню сразу с доступными данными
         message = self.get_main_menu_message(user_id)
         keyboard = self.get_main_menu_keyboard(user_id)
+        edited = await query.edit_message_text(message, reply_markup=keyboard, parse_mode='HTML')
+        # Сохраняем id сообщения главного меню
+        if edited and getattr(edited, 'message_id', None):
+            self.user_main_menu_message_id[user_id] = edited.message_id
         
-        await query.edit_message_text(message, reply_markup=keyboard)
+        # Если есть кошельки, при необходимости запускаем фоновое обновление кэша без ожидания
+        if user_data.wallet_addresses:
+            use_compact = len(user_data.wallet_addresses) >= 5
+            
+            # Проверяем, нужно ли обновить кэш (по устареванию 5 минут)
+            needs_update = False
+            if use_compact:
+                wallets_to_check = user_data.wallet_addresses[:3]
+            else:
+                wallets_to_check = user_data.wallet_addresses
+            
+            for wallet in wallets_to_check:
+                cached_stats = self.stats_cache.get_cached_stats(wallet, use_compact)
+                if not cached_stats or cached_stats.is_expired(5):
+                    needs_update = True
+                    break
+            
+            if needs_update:
+                # Запускаем фоновое обновление кэша (дедупликация по пользователю)
+                existing = self.user_cache_update_tasks.get(user_id)
+                if not existing or existing.done():
+                    task = self.application.create_task(self.background_cache_update(user_id, use_compact))
+                    self.user_cache_update_tasks[user_id] = task
     
     async def show_my_data_menu(self, query):
         """Показывает меню 'Мои данные'"""
@@ -533,13 +849,20 @@ class PHIBot:
         else:
             message = self.get_text(user_id, 'followers_select')
             
-            keyboard = []
+            # Создаем кнопки для кошельков
+            wallet_buttons = []
             for i, address in enumerate(user_data.wallet_addresses):
                 short_address = f"{address[:6]}...{address[-4:]}"
-                keyboard.append([InlineKeyboardButton(
+                wallet_buttons.append(InlineKeyboardButton(
                     f"📱 {short_address}", 
                     callback_data=f"followers_wallet_{i}"
-                )])
+                ))
+            
+            # Группируем кнопки по 3 в ряд, если кошельков больше 3
+            if len(user_data.wallet_addresses) > 3:
+                keyboard = group_buttons_in_rows(wallet_buttons, 3)
+            else:
+                keyboard = [[button] for button in wallet_buttons]
             
             keyboard.append([InlineKeyboardButton(self.get_text(user_id, 'back'), callback_data="back_to_main")])
         
@@ -561,13 +884,20 @@ class PHIBot:
         else:
             message = self.get_text(user_id, 'token_holders_select')
             
-            keyboard = []
+            # Создаем кнопки для кошельков
+            wallet_buttons = []
             for i, address in enumerate(user_data.wallet_addresses):
                 short_address = f"{address[:6]}...{address[-4:]}"
-                keyboard.append([InlineKeyboardButton(
+                wallet_buttons.append(InlineKeyboardButton(
                     f"📱 {short_address}", 
                     callback_data=f"token_wallet_{i}"
-                )])
+                ))
+            
+            # Группируем кнопки по 3 в ряд, если кошельков больше 3
+            if len(user_data.wallet_addresses) > 3:
+                keyboard = group_buttons_in_rows(wallet_buttons, 3)
+            else:
+                keyboard = [[button] for button in wallet_buttons]
             
             keyboard.append([InlineKeyboardButton(self.get_text(user_id, 'back'), callback_data="back_to_main")])
         
@@ -584,8 +914,8 @@ class PHIBot:
         
         wallet_address = user_data.wallet_addresses[wallet_index]
         
-        # Проверяем ачивку Trendsetter
-        achievement = self.api_client.get_trendsetter_achievement(wallet_address)
+        # Проверяем ачивку Trendsetter (в отдельном потоке)
+        achievement = await asyncio.to_thread(self.api_client.get_trendsetter_achievement, wallet_address)
         
         if not achievement:
             message = self.get_text(user_id, 'error_achievement_check', wallet_address=wallet_address)
@@ -594,18 +924,9 @@ class PHIBot:
                 [InlineKeyboardButton(self.get_text(user_id, 'back'), callback_data="followers")]
             ]
         elif achievement['completed']:
-            # Ачивка уже выполнена - проверяем, есть ли адрес в общем списке
-            is_in_global_list = wallet_address in self.data_manager.read_wallets()
-            
-            if is_in_global_list:
-                # Адрес уже в общем списке - не показываем это пользователю
-                message = self.get_text(user_id, 'achievement_completed', 
-                                      achievement_name='Trendsetter', wallet_address=wallet_address)
-            else:
-                # Адрес не в общем списке - добавляем его
-                self.add_wallet_to_global_list(wallet_address)
-                message = self.get_text(user_id, 'achievement_completed_added', 
-                                      achievement_name='Trendsetter', wallet_address=wallet_address)
+            # Ачивка уже выполнена – ничего не добавляем в общий список
+            message = self.get_text(user_id, 'achievement_completed', 
+                                  achievement_name='Trendsetter', wallet_address=wallet_address)
             
             keyboard = [
                 [InlineKeyboardButton(self.get_text(user_id, 'continue'), callback_data=f"followers_continue_{wallet_index}")],
@@ -630,8 +951,8 @@ class PHIBot:
             
             await query.edit_message_text(message)
             
-            # Генерируем ссылки на профили
-            profile_links = self.generate_followers_links(remaining, wallet_address, user_id)
+            # Генерируем ссылки на профили (в отдельном потоке)
+            profile_links = await asyncio.to_thread(self.generate_followers_links, remaining, wallet_address, user_id)
             
             if profile_links:
                 # Сохраняем список адресов для проверки
@@ -669,7 +990,7 @@ class PHIBot:
             
             # Если недостаточно адресов, добавляем в очередь ожидания
             if len(profile_links) < remaining:
-                self.add_wallet_to_global_list(wallet_address)
+                # Не добавляем кошелек в общий список автоматически
                 
                 if self.background_checker:
                     self.background_checker.add_waiting_user(
@@ -701,8 +1022,8 @@ class PHIBot:
         
         wallet_address = user_data.wallet_addresses[wallet_index]
         
-        # Проверяем ачивку They Lovin' It
-        achievement = self.api_client.get_token_holders_achievement(wallet_address)
+        # Проверяем ачивку They Lovin' It (в отдельном потоке)
+        achievement = await asyncio.to_thread(self.api_client.get_token_holders_achievement, wallet_address)
         
         if not achievement:
             message = self.get_text(user_id, 'error_achievement_check', wallet_address=wallet_address)
@@ -711,18 +1032,9 @@ class PHIBot:
                 [InlineKeyboardButton(self.get_text(user_id, 'back'), callback_data="token_holders")]
             ]
         elif achievement['completed']:
-            # Ачивка уже выполнена - проверяем, есть ли адрес в общем списке
-            is_in_global_list = wallet_address in self.data_manager.read_wallets()
-            
-            if is_in_global_list:
-                # Адрес уже в общем списке - не показываем это пользователю
-                message = self.get_text(user_id, 'achievement_completed', 
-                                      achievement_name="They Lovin' It", wallet_address=wallet_address)
-            else:
-                # Адрес не в общем списке - добавляем его
-                self.add_wallet_to_global_list(wallet_address)
-                message = self.get_text(user_id, 'achievement_completed_added', 
-                                      achievement_name="They Lovin' It", wallet_address=wallet_address)
+            # Для токенов не добавляем кошелёк в список адресов для фолловеров
+            message = self.get_text(user_id, 'achievement_completed', 
+                                  achievement_name="They Lovin' It", wallet_address=wallet_address)
             
             keyboard = [
                 [InlineKeyboardButton(self.get_text(user_id, 'continue'), callback_data=f"token_continue_{wallet_index}")],
@@ -747,8 +1059,8 @@ class PHIBot:
             
             await query.edit_message_text(message)
             
-            # Генерируем ссылки на токены
-            token_links = self.generate_token_links(remaining, wallet_address, user_id)
+            # Генерируем ссылки на токены (в отдельном потоке)
+            token_links = await asyncio.to_thread(self.generate_token_links, remaining, wallet_address, user_id)
             
             if token_links:
                 # Сохраняем список токенов для проверки
@@ -925,8 +1237,8 @@ class PHIBot:
         
         wallet_address = user_data.wallet_addresses[wallet_index]
         
-        # Проверяем ачивку снова
-        achievement = self.api_client.get_trendsetter_achievement(wallet_address)
+        # Проверяем ачивку снова (в отдельном потоке)
+        achievement = await asyncio.to_thread(self.api_client.get_trendsetter_achievement, wallet_address)
         
         if not achievement or achievement['completed']:
             await self.handle_followers_wallet_selection(query, wallet_index)
@@ -994,8 +1306,8 @@ class PHIBot:
         # Это нужно сохранять в контексте или в данных пользователя
         # Пока используем упрощенную версию - проверяем ачивку
         
-        # Проверяем ачивку снова
-        achievement = self.api_client.get_trendsetter_achievement(wallet_address)
+        # Проверяем ачивку снова (в отдельном потоке)
+        achievement = await asyncio.to_thread(self.api_client.get_trendsetter_achievement, wallet_address)
         
         if not achievement:
             message = self.get_text(user_id, 'error_achievement_check_general')
@@ -1065,8 +1377,8 @@ class PHIBot:
         
         wallet_address = user_data.wallet_addresses[wallet_index]
         
-        # Проверяем ачивку снова
-        achievement = self.api_client.get_token_holders_achievement(wallet_address)
+        # Проверяем ачивку снова (в отдельном потоке)
+        achievement = await asyncio.to_thread(self.api_client.get_token_holders_achievement, wallet_address)
         
         if not achievement or achievement['completed']:
             await self.handle_token_wallet_selection(query, wallet_index)
@@ -1130,8 +1442,8 @@ class PHIBot:
         
         wallet_address = user_data.wallet_addresses[wallet_index]
         
-        # Проверяем ачивку снова
-        achievement = self.api_client.get_token_holders_achievement(wallet_address)
+        # Проверяем ачивку снова (в отдельном потоке)
+        achievement = await asyncio.to_thread(self.api_client.get_token_holders_achievement, wallet_address)
         
         if not achievement:
             message = self.get_text(user_id, 'error_achievement_check_general')
@@ -1200,7 +1512,7 @@ class PHIBot:
         
         if not target_board_ids:
             # Если нет сохраненных данных, проверяем ачивку
-            achievement = self.api_client.get_token_holders_achievement(user_wallet)
+            achievement = await asyncio.to_thread(self.api_client.get_token_holders_achievement, user_wallet)
             if not achievement:
                 message = self.get_text(user_id, 'error_achievement_check_general')
                 
@@ -1220,15 +1532,19 @@ class PHIBot:
             # Проверяем конкретные покупки через API
             await query.edit_message_text(self.get_text(user_id, 'checking_purchases'))
             
-            # Проверяем каждый токен
-            purchase_results = self.api_client.check_multiple_token_purchases(target_board_ids, user_wallet)
+            # Проверяем каждый токен (в отдельном потоке)
+            purchase_results = await asyncio.to_thread(self.api_client.check_multiple_token_purchases, target_board_ids, user_wallet)
             
             # Разделяем на купленные и некупленные
             purchased = [board_id for board_id, is_purchased in purchase_results.items() if is_purchased]
             not_purchased = [board_id for board_id, is_purchased in purchase_results.items() if not is_purchased]
             
-            # Если пользователь не купил ни одного токена, добавляем в очередь фоновой проверки
-            if not purchased and not_purchased:
+            # Учитываем только новые покупки (чтобы не двойной учёт)
+            progress = user_data.token_progress.get(user_wallet, {'count': 0, 'counted_board_ids': []})
+            already = set(progress.get('counted_board_ids', []))
+            new_purchased = [bid for bid in purchased if bid not in already]
+            # Если пользователь не купил ни одного токена (новых тоже нет), добавляем в очередь фоновой проверки
+            if not new_purchased and not_purchased:
                 if self.background_checker:
                     self.background_checker.add_pending_check(
                         user_id=user_id,
@@ -1254,12 +1570,15 @@ class PHIBot:
             
             if not not_purchased:
                 # Все покупки выполнены
-                user_data = self.users_data.get(user_id, UserData([], []))
-                user_data.completed_token_tasks += len(purchased)
+                progress['count'] = int(progress.get('count', 0)) + len(new_purchased)
+                progress['counted_board_ids'] = list(already.union(set(new_purchased)))
+                user_data.token_progress[user_wallet] = progress
+                # Обновляем глобальный суммарный счётчик (если нужен)
+                user_data.completed_token_tasks = sum(p.get('count', 0) for p in user_data.token_progress.values())
                 self.save_users_data()
                 
-                # Проверяем ачивку еще раз
-                achievement = self.api_client.get_token_holders_achievement(user_wallet)
+                # Проверяем ачивку еще раз (в отдельном потоке)
+                achievement = await asyncio.to_thread(self.api_client.get_token_holders_achievement, user_wallet)
                 if achievement and achievement['completed']:
                     # Проверяем, есть ли адрес в общем списке
                     is_in_global_list = user_wallet in self.data_manager.read_wallets()
@@ -1278,7 +1597,7 @@ class PHIBot:
                     ]
                 else:
                     message = self.get_text(user_id, 'all_purchases_complete', 
-                                          count=len(purchased), completed_tasks=user_data.completed_token_tasks)
+                                          count=len(new_purchased), completed_tasks=progress['count'])
                     
                     keyboard = [
                         [InlineKeyboardButton(self.get_text(user_id, 'main_menu'), callback_data="back_to_main")]
@@ -1289,7 +1608,7 @@ class PHIBot:
                 links_text = "\n".join([f"• {link}" for link in not_purchased_links])
                 
                 message = self.get_text(user_id, 'not_all_purchases', 
-                                      purchased=len(purchased), total=len(target_board_ids), links=links_text)
+                                      purchased=len(new_purchased), total=len(target_board_ids), links=links_text)
                 
                 keyboard = [
                     [InlineKeyboardButton(self.get_text(user_id, 'done'), callback_data=f"token_done_{wallet_index}")],
@@ -1313,7 +1632,7 @@ class PHIBot:
         
         if not target_addresses:
             # Если нет сохраненных данных, проверяем ачивку
-            achievement = self.api_client.get_trendsetter_achievement(user_wallet)
+            achievement = await asyncio.to_thread(self.api_client.get_trendsetter_achievement, user_wallet)
             if not achievement:
                 message = self.get_text(user_id, 'error_achievement_check_general')
                 
@@ -1333,15 +1652,19 @@ class PHIBot:
             # Проверяем конкретные подписки через API
             await query.edit_message_text(self.get_text(user_id, 'checking_followers'))
             
-            # Проверяем каждый адрес
-            follow_results = self.api_client.check_multiple_followers(target_addresses, user_wallet)
+            # Проверяем каждый адрес (в отдельном потоке)
+            follow_results = await asyncio.to_thread(self.api_client.check_multiple_followers, target_addresses, user_wallet)
             
             # Разделяем на подписанные и неподписанные
             followed = [addr for addr, is_following in follow_results.items() if is_following]
             not_followed = [addr for addr, is_following in follow_results.items() if not is_following]
             
-            # Если пользователь не подписался ни на кого, добавляем в очередь фоновой проверки
-            if not followed and not_followed:
+            # Учитываем только новые подписки (без двойного учёта)
+            progress = user_data.followers_progress.get(user_wallet, {'count': 0, 'counted_addresses': []})
+            already = set(progress.get('counted_addresses', []))
+            new_followed = [addr for addr in followed if addr not in already]
+            # Если нет новых подписок и есть неподписанные — добавляем в проверку
+            if not new_followed and not_followed:
                 if self.background_checker:
                     self.background_checker.add_pending_check(
                         user_id=user_id,
@@ -1367,12 +1690,15 @@ class PHIBot:
             
             if not not_followed:
                 # Все подписки выполнены
-                user_data = self.users_data.get(user_id, UserData([], []))
-                user_data.completed_followers_tasks += len(followed)
+                progress['count'] = int(progress.get('count', 0)) + len(new_followed)
+                progress['counted_addresses'] = list(already.union(set(new_followed)))
+                user_data.followers_progress[user_wallet] = progress
+                # Обновляем глобальный суммарный счётчик (если нужен)
+                user_data.completed_followers_tasks = sum(p.get('count', 0) for p in user_data.followers_progress.values())
                 self.save_users_data()
                 
                 # Проверяем ачивку еще раз
-                achievement = self.api_client.get_trendsetter_achievement(user_wallet)
+                achievement = await asyncio.to_thread(self.api_client.get_trendsetter_achievement, user_wallet)
                 if achievement and achievement['completed']:
                     # Проверяем, есть ли адрес в общем списке
                     is_in_global_list = user_wallet in self.data_manager.read_wallets()
@@ -1391,7 +1717,7 @@ class PHIBot:
                     ]
                 else:
                     message = self.get_text(user_id, 'all_followers_complete', 
-                                          count=len(followed), completed_tasks=user_data.completed_followers_tasks)
+                                          count=len(new_followed), completed_tasks=progress['count'])
                     
                     keyboard = [
                         [InlineKeyboardButton(self.get_text(user_id, 'main_menu'), callback_data="back_to_main")]
@@ -1402,7 +1728,7 @@ class PHIBot:
                 links_text = "\n".join([f"• {link}" for link in not_followed_links])
                 
                 message = self.get_text(user_id, 'not_all_followers', 
-                                      followed=len(followed), total=len(target_addresses), links=links_text)
+                                      followed=len(new_followed), total=len(target_addresses), links=links_text)
                 
                 keyboard = [
                     [InlineKeyboardButton(self.get_text(user_id, 'done'), callback_data=f"followers_done_{wallet_index}")],
@@ -1476,6 +1802,288 @@ class PHIBot:
         
         self.save_users_data()
         print(f"Очищены уведомления о получении ачивок для пользователя {user_id}")
+    
+    def check_wallet_changes(self, user_id: int) -> bool:
+        """Проверяет, изменились ли кошельки пользователя"""
+        user_data = self.users_data.get(user_id)
+        if not user_data:
+            return False
+        
+        current_wallet_count = len(user_data.wallet_addresses)
+        last_wallet_count = getattr(user_data, 'last_wallet_count', 0)
+        
+        # Если количество кошельков изменилось
+        if current_wallet_count != last_wallet_count:
+            print(f"🔄 Обнаружено изменение кошельков для пользователя {user_id}: {last_wallet_count} → {current_wallet_count}")
+            
+            # Очищаем кэш для всех кошельков пользователя
+            self.stats_cache.clear_user_cache(user_data.wallet_addresses)
+            
+            # Обновляем счетчик
+            user_data.last_wallet_count = current_wallet_count
+            self.save_users_data()
+            
+            return True
+        
+        return False
+    
+    def get_user_statistics(self, wallet_address: str, user_id: int, compact: bool = False, use_cache: bool = True) -> str:
+        """Получает статистику пользователя с прогрессом по ачивкам"""
+        try:
+            # Проверяем кэш если включено кэширование
+            if use_cache:
+                cached_stats = self.stats_cache.get_cached_stats(wallet_address, compact)
+                if cached_stats:
+                    return cached_stats.formatted_message
+            
+            # Получаем статистику пользователя
+            user_stats = self.api_client.get_user_stats(wallet_address)
+            if not user_stats:
+                return "❌ Не удалось получить статистику пользователя"
+            
+            followers_count = user_stats.get('followers_count', 0)
+            following_count = user_stats.get('following_count', 0)
+            
+            # Получаем общее количество выполненных ачивок
+            total_achievements = self.api_client.get_total_achievements_count(wallet_address)
+            total_achievements_possible = self.api_client.get_total_achievements_possible(wallet_address)
+            
+            # Получаем прогресс по конкретным ачивкам
+            social_butterfly = self.api_client.get_social_butterfly_achievement(wallet_address)
+            trendsetter = self.api_client.get_trendsetter_achievement(wallet_address)
+            they_lovin_it = self.api_client.get_token_holders_achievement(wallet_address)
+            
+            # Формируем строку прогресса по ачивкам
+            achievements_progress = []
+            
+            # Social Butterfly
+            if social_butterfly:
+                if social_butterfly['completed']:
+                    if not compact:  # В компактном режиме не показываем выполненные ачивки
+                        achievements_progress.append(
+                            self.get_text(user_id, 'achievement_completed_line',
+                                        icon=self.get_text(user_id, 'achievement_completed_icon'),
+                                        name=self.get_text(user_id, 'social_butterfly'))
+                        )
+                else:
+                    achievements_progress.append(
+                        self.get_text(user_id, 'achievement_progress_line',
+                                    icon=self.get_text(user_id, 'achievement_in_progress_icon'),
+                                    name=self.get_text(user_id, 'social_butterfly'),
+                                    progress=social_butterfly['progress_count'],
+                                    required=social_butterfly['required_count'],
+                                    remaining=social_butterfly['remaining'])
+                    )
+            
+            # Trendsetter
+            if trendsetter:
+                if trendsetter['completed']:
+                    if not compact:  # В компактном режиме не показываем выполненные ачивки
+                        achievements_progress.append(
+                            self.get_text(user_id, 'achievement_completed_line',
+                                        icon=self.get_text(user_id, 'achievement_completed_icon'),
+                                        name=self.get_text(user_id, 'trendsetter'))
+                        )
+                else:
+                    achievements_progress.append(
+                        self.get_text(user_id, 'achievement_progress_line',
+                                    icon=self.get_text(user_id, 'achievement_in_progress_icon'),
+                                    name=self.get_text(user_id, 'trendsetter'),
+                                    progress=trendsetter['progress_count'],
+                                    required=trendsetter['required_count'],
+                                    remaining=trendsetter['remaining'])
+                    )
+            
+            # They Lovin' It
+            if they_lovin_it:
+                if they_lovin_it['completed']:
+                    if not compact:  # В компактном режиме не показываем выполненные ачивки
+                        achievements_progress.append(
+                            self.get_text(user_id, 'achievement_completed_line',
+                                        icon=self.get_text(user_id, 'achievement_completed_icon'),
+                                        name=self.get_text(user_id, 'they_lovin_it'))
+                        )
+                else:
+                    achievements_progress.append(
+                        self.get_text(user_id, 'achievement_progress_line',
+                                    icon=self.get_text(user_id, 'achievement_in_progress_icon'),
+                                    name=self.get_text(user_id, 'they_lovin_it'),
+                                    progress=they_lovin_it['progress_count'],
+                                    required=they_lovin_it['required_count'],
+                                    remaining=they_lovin_it['remaining'])
+                    )
+            
+            achievements_progress_text = '\n'.join(achievements_progress)
+            
+            # Выбираем формат в зависимости от режима
+            if compact:
+                formatted_message = self.get_text(user_id, 'user_stats_compact',
+                                   wallet_address=wallet_address,
+                                   followers_count=followers_count,
+                                   following_count=following_count,
+                                   total_achievements=total_achievements,
+                                   total_achievements_possible=total_achievements_possible,
+                                   achievements_progress=achievements_progress_text)
+            else:
+                formatted_message = self.get_text(user_id, 'user_stats_title',
+                                   wallet_address=wallet_address,
+                                   followers_count=followers_count,
+                                   following_count=following_count,
+                                   total_achievements=total_achievements,
+                                   achievements_progress=achievements_progress_text)
+            
+            # Всегда сохраняем в кэш свежие данные (use_cache влияет только на чтение)
+            stats_data = {
+                'user_stats': user_stats,
+                'total_achievements': total_achievements,
+                'total_achievements_possible': total_achievements_possible,
+                'social_butterfly': social_butterfly,
+                'trendsetter': trendsetter,
+                'they_lovin_it': they_lovin_it
+            }
+            self.stats_cache.set_cached_stats(wallet_address, compact, stats_data, formatted_message)
+
+            # Обновляем файловое хранилище статистики для главного меню
+            user_key = str(user_id)
+            if user_key not in self.user_stats_store:
+                self.user_stats_store[user_key] = {
+                    'wallets': {},
+                    'updated_at': datetime.now().isoformat()
+                }
+            # Для каждого кошелька храним скомпонованный текст и время
+            self.user_stats_store[user_key]['wallets'][wallet_address] = {
+                'compact': compact,
+                'formatted': formatted_message,
+                'updated_at': datetime.now().isoformat()
+            }
+            self.user_stats_store[user_key]['updated_at'] = datetime.now().isoformat()
+            self.save_user_stats_store()
+            
+            return formatted_message
+            
+        except Exception as e:
+            print(f"Ошибка получения статистики пользователя: {e}")
+            return "❌ Ошибка получения статистики пользователя"
+    
+    async def load_stats_async(self, wallet_address: str, user_id: int, compact: bool = False):
+        """Асинхронно загружает статистику пользователя в фоне"""
+        try:
+            print(f"🔄 Начинаем асинхронную загрузку статистики для {wallet_address}")
+            
+            # Получаем статистику без кэша
+            stats_message = await asyncio.to_thread(self.get_user_statistics, wallet_address, user_id, compact, False)
+            
+            print(f"✅ Асинхронная загрузка статистики завершена для {wallet_address}")
+            return stats_message
+            
+        except Exception as e:
+            print(f"❌ Ошибка асинхронной загрузки статистики для {wallet_address}: {e}")
+            return None
+        finally:
+            # Удаляем задачу из очереди загрузки
+            self.stats_cache.remove_loading_task(wallet_address, compact)
+    
+    async def background_cache_update(self, user_id: int, use_compact: bool):
+        """Фоновое обновление кэша статистики"""
+        try:
+            user_data = self.users_data.get(user_id)
+            if not user_data or not user_data.wallet_addresses:
+                return
+            
+            # Определяем, какие кошельки нужно обновить (все кошельки пользователя)
+            wallets_to_update = []
+            wallets_to_check = user_data.wallet_addresses
+            
+            for wallet in wallets_to_check:
+                cached_stats = self.stats_cache.get_cached_stats(wallet, use_compact)
+                if not cached_stats or cached_stats.is_expired(5):
+                    wallets_to_update.append(wallet)
+            
+            # Обновляем кэш для нужных кошельков
+            for wallet in wallets_to_update:
+                try:
+                    await asyncio.to_thread(self.get_user_statistics, wallet, user_id, use_compact, False)
+                    # Данные уже сохранены в кэш в get_user_statistics
+                except Exception as e:
+                    print(f"Ошибка обновления кэша для {wallet}: {e}")
+            
+            print(f"Фоновое обновление кэша завершено для пользователя {user_id}")
+            
+            # Обновляем меню пользователя, если он все еще в главном меню
+            await self.update_user_menu_if_needed(user_id)
+            # Снимаем ссылку на таск, он завершился
+            task = self.user_cache_update_tasks.get(user_id)
+            if task and task.done():
+                del self.user_cache_update_tasks[user_id]
+            
+        except Exception as e:
+            print(f"Ошибка в фоновом обновлении кэша: {e}")
+    
+    async def update_user_menu_if_needed(self, user_id: int):
+        """Если кэш обновился, перерисовывает главное меню пользователя."""
+        try:
+            # Проверяем, есть ли у пользователя сообщение главного меню
+            message_id = self.user_main_menu_message_id.get(user_id)
+            if not message_id:
+                return
+            # Пересобираем текст и клавиатуру
+            message = self.get_main_menu_message(user_id)
+            keyboard = self.get_main_menu_keyboard(user_id)
+            # Пытаемся отредактировать сохраненное сообщение главного меню
+            try:
+                await self.application.bot.edit_message_text(
+                    chat_id=user_id,
+                    message_id=message_id,
+                    text=message,
+                    parse_mode='HTML',
+                    reply_markup=keyboard
+                )
+            except Exception as e:
+                # Игнорируем ошибку «Message is not modified» как некритичную
+                if 'Message is not modified' in str(e):
+                    return
+                raise
+        except Exception as e:
+            print(f"Ошибка при обновлении меню пользователя {user_id}: {e}")
+    
+    async def auto_refresh_stats_cache(self):
+        """Автоматически обновляет кэш статистики каждые 20 минут"""
+        while True:
+            try:
+                await asyncio.sleep(60)  # Проверяем каждую минуту
+                
+                if self.stats_cache.should_auto_refresh():
+                    print("🔄 Выполняем автоматическое обновление кэша статистики...")
+                    
+                    # Получаем все уникальные адреса из кэша
+                    addresses_to_refresh = list(self.stats_cache.cache.keys())
+                    
+                    for wallet_address in addresses_to_refresh:
+                        try:
+                            # Обновляем статистику для каждого адреса
+                            # Находим пользователя с этим адресом
+                            user_id = None
+                            for uid, user_data in self.users_data.items():
+                                if wallet_address in user_data.wallet_addresses:
+                                    user_id = uid
+                                    break
+                            
+                            if user_id:
+                                # Обновляем статистику без кэша
+                                await asyncio.to_thread(self.get_user_statistics, wallet_address, user_id, False, False)
+                                print(f"✅ Обновлена статистика для {wallet_address}")
+                        except Exception as e:
+                            print(f"❌ Ошибка обновления статистики для {wallet_address}: {e}")
+                    
+                    # Очищаем устаревший кэш
+                    self.stats_cache.clear_expired_cache()
+                    
+                    # Отмечаем, что автообновление выполнено
+                    self.stats_cache.mark_auto_refresh_done()
+                    print("✅ Автоматическое обновление кэша завершено")
+                    
+            except Exception as e:
+                print(f"❌ Ошибка в автоматическом обновлении кэша: {e}")
     
     def cleanup_completed_achievements(self):
         """Очищает файлы от адресов и токенов с уже полученными ачивками"""
@@ -1578,9 +2186,6 @@ class PHIBot:
                     self.users_data[user_id].wallet_addresses.append(address)
             
             self.save_users_data()
-            
-            # Обновляем общий файл кошельков
-            self.update_wallets_file()
         
         message = self.get_text(user_id, 'processing_complete', 
                                valid_count=len(valid_addresses),
@@ -1621,10 +2226,6 @@ class PHIBot:
                     self.users_data[user_id].board_addresses.append(board_id)
             
             self.save_users_data()
-            
-            # Обновляем общие файлы
-            self.update_boards_file()
-            self.update_tokens_file()
         
         message = self.get_text(user_id, 'processing_complete_boards', 
                                valid_count=len(valid_boards),
@@ -1690,25 +2291,18 @@ class PHIBot:
         
         print("Бот запущен...")
         
-        # Запускаем фоновую проверку
-        import asyncio
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+        async def _post_init(app):
+            # Устанавливаем меню команд
+            await self.set_bot_commands()
+            # Запускаем фоновые задачи через приложение (его event loop)
+            app.create_task(self.background_checker.start_background_checking())
+            app.create_task(self.auto_refresh_stats_cache())
         
-        # Запускаем фоновую проверку в отдельной задаче
-        background_task = loop.create_task(self.background_checker.start_background_checking())
+        # Регистрируем post_init хук, без использования JobQueue
+        self.application.post_init = _post_init
         
-        # Устанавливаем меню команд
-        loop.run_until_complete(self.set_bot_commands())
-        
-        try:
-            # Запускаем бота
-            self.application.run_polling()
-        except KeyboardInterrupt:
-            print("\nОстановка бота...")
-            self.background_checker.stop_background_checking()
-            background_task.cancel()
-            loop.close()
+        # Запускаем бота (внутри будет создан и использован один event loop)
+        self.application.run_polling()
 
 if __name__ == "__main__":
     bot = PHIBot()

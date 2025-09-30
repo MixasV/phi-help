@@ -37,6 +37,7 @@ class WaitingUser:
     needed_count: int  # Сколько нужно адресов/токенов
     created_at: datetime = None
     last_check: datetime = None
+    notification_sent: bool = False  # Было ли отправлено уведомление о новых адресах/токенах
     
     def __post_init__(self):
         if self.created_at is None:
@@ -103,6 +104,9 @@ class BackgroundChecker:
                         # Конвертируем строки дат обратно в datetime
                         user_data['created_at'] = datetime.fromisoformat(user_data['created_at'])
                         user_data['last_check'] = datetime.fromisoformat(user_data['last_check'])
+                        # Добавляем поле notification_sent если его нет (для совместимости со старыми данными)
+                        if 'notification_sent' not in user_data:
+                            user_data['notification_sent'] = False
                         self.waiting_users[key] = WaitingUser(**user_data)
                 print(f"Загружено {len(self.waiting_users)} ожидающих пользователей")
         except Exception as e:
@@ -180,8 +184,10 @@ class BackgroundChecker:
         """Проверяет выполнение задания по фолловерам"""
         try:
             # Проверяем подписки через API
-            follow_results = self.api_client.check_multiple_followers(
-                check.target_addresses, check.wallet_address
+            follow_results = await asyncio.to_thread(
+                self.api_client.check_multiple_followers,
+                check.target_addresses,
+                check.wallet_address
             )
             
             # Разделяем на подписанные и неподписанные
@@ -196,13 +202,12 @@ class BackgroundChecker:
                     self.bot.save_users_data()
                 
                 # Проверяем ачивку еще раз
-                achievement = self.api_client.get_trendsetter_achievement(check.wallet_address)
+                achievement = await asyncio.to_thread(
+                    self.api_client.get_trendsetter_achievement,
+                    check.wallet_address
+                )
                 if achievement and achievement['completed']:
-                    # Проверяем, есть ли адрес уже в общем списке
-                    is_in_global_list = check.wallet_address in self.bot.data_manager.read_wallets()
-                    if not is_in_global_list:
-                        self.bot.add_wallet_to_global_list(check.wallet_address)
-                    
+                    # Адрес уже достиг 10+ фолловеров — не добавляем в общий список
                     await self.send_success_notification(check, "followers")
                 else:
                     await self.send_partial_success_notification(check, "followers", len(followed))
@@ -221,8 +226,10 @@ class BackgroundChecker:
         """Проверяет выполнение задания по токенам"""
         try:
             # Проверяем покупки через API
-            purchase_results = self.api_client.check_multiple_token_purchases(
-                check.target_board_ids, check.wallet_address
+            purchase_results = await asyncio.to_thread(
+                self.api_client.check_multiple_token_purchases,
+                check.target_board_ids,
+                check.wallet_address
             )
             
             # Разделяем на купленные и некупленные
@@ -237,13 +244,12 @@ class BackgroundChecker:
                     self.bot.save_users_data()
                 
                 # Проверяем ачивку еще раз
-                achievement = self.api_client.get_token_holders_achievement(check.wallet_address)
+                achievement = await asyncio.to_thread(
+                    self.api_client.get_token_holders_achievement,
+                    check.wallet_address
+                )
                 if achievement and achievement['completed']:
-                    # Проверяем, есть ли адрес уже в общем списке
-                    is_in_global_list = check.wallet_address in self.bot.data_manager.read_wallets()
-                    if not is_in_global_list:
-                        self.bot.add_wallet_to_global_list(check.wallet_address)
-                    
+                    # Для токенов не трогаем список кошельков
                     await self.send_success_notification(check, "tokens")
                 else:
                     await self.send_partial_success_notification(check, "tokens", len(purchased))
@@ -339,7 +345,10 @@ class BackgroundChecker:
             for user_id, user_data in self.bot.users_data.items():
                 for wallet_address in user_data.wallet_addresses:
                     # Проверяем ачивку Trendsetter
-                    trendsetter_achievement = self.api_client.get_trendsetter_achievement(wallet_address)
+                    trendsetter_achievement = await asyncio.to_thread(
+                        self.api_client.get_trendsetter_achievement,
+                        wallet_address
+                    )
                     if trendsetter_achievement and trendsetter_achievement['completed']:
                         # Проверяем, есть ли адрес в общем списке
                         is_in_global_list = wallet_address in self.bot.data_manager.read_wallets()
@@ -348,7 +357,10 @@ class BackgroundChecker:
                             await self.send_achievement_notification(user_id, wallet_address, "Trendsetter")
                     
                     # Проверяем ачивку They Lovin' It
-                    token_achievement = self.api_client.get_token_holders_achievement(wallet_address)
+                    token_achievement = await asyncio.to_thread(
+                        self.api_client.get_token_holders_achievement,
+                        wallet_address
+                    )
                     if token_achievement and token_achievement['completed']:
                         # Проверяем, есть ли адрес в общем списке
                         is_in_global_list = wallet_address in self.bot.data_manager.read_wallets()
@@ -387,7 +399,10 @@ class BackgroundChecker:
                 print(f"   [{wallets_checked}/{len(wallets)}] Проверяем адрес: {wallet_address[:10]}...")
                 
                 # Проверяем ачивку Trendsetter
-                trendsetter_achievement = self.api_client.get_trendsetter_achievement(wallet_address)
+                trendsetter_achievement = await asyncio.to_thread(
+                    self.api_client.get_trendsetter_achievement,
+                    wallet_address
+                )
                 if trendsetter_achievement and trendsetter_achievement['completed']:
                     print(f"   ✅ Адрес {wallet_address} получил ачивку Trendsetter - удаляем из wallets.txt")
                     wallets_to_remove.append(wallet_address)
@@ -420,7 +435,10 @@ class BackgroundChecker:
                 print(f"   [{tokens_checked}/{len(tokens)}] Проверяем токен: {board_id[:10]}...")
                 
                 # Проверяем количество холдеров токена
-                holders_count = self.api_client.get_token_holders_count(board_id)
+                holders_count = await asyncio.to_thread(
+                    self.api_client.get_token_holders_count,
+                    board_id
+                )
                 
                 if holders_count is not None:
                     print(f"   📊 Токен {board_id} имеет {holders_count} холдеров")
@@ -548,8 +566,11 @@ class BackgroundChecker:
                     available_wallets = [w for w in self.data_manager.read_wallets() if w not in user_addresses]
                     
                     if len(available_wallets) >= waiting_user.needed_count:
-                        # Достаточно адресов - уведомляем пользователя
-                        await self.send_new_addresses_notification(waiting_user, len(available_wallets))
+                        # Достаточно адресов - уведомляем пользователя только если еще не отправляли
+                        if not waiting_user.notification_sent:
+                            await self.send_new_addresses_notification(waiting_user, len(available_wallets))
+                            waiting_user.notification_sent = True
+                            self.save_waiting_users()
                         users_to_remove.append(key)
                 
                 elif waiting_user.check_type == "tokens":
@@ -562,8 +583,11 @@ class BackgroundChecker:
                     available_tokens = [t for t in self.data_manager.read_tokens() if t not in user_boards]
                     
                     if len(available_tokens) >= waiting_user.needed_count:
-                        # Достаточно токенов - уведомляем пользователя
-                        await self.send_new_tokens_notification(waiting_user, len(available_tokens))
+                        # Достаточно токенов - уведомляем пользователя только если еще не отправляли
+                        if not waiting_user.notification_sent:
+                            await self.send_new_tokens_notification(waiting_user, len(available_tokens))
+                            waiting_user.notification_sent = True
+                            self.save_waiting_users()
                         users_to_remove.append(key)
                 
             except Exception as e:
@@ -690,8 +714,8 @@ You can go to the "Token holders" menu and complete the task for address:
         self.is_running = True
         print("Запущена фоновая проверка заданий...")
         
-        # Выполняем первичную проверку при запуске
-        await self.perform_initial_check()
+        # Выполняем первичную проверку при запуске в фоне
+        asyncio.create_task(self.perform_initial_check())
         
         while self.is_running:
             try:

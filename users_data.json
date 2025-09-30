@@ -2,28 +2,54 @@
   "235335704": {
     "wallet_addresses": [
       "0xC7f9154a72524097B1323961F584f7047b875271",
-      "0xFa8Ffb57D305B32A081A5E0043F1F7403A6c4D64"
+      "0xFa8Ffb57D305B32A081A5E0043F1F7403A6c4D64",
+      "0x8b09C4Fd7f3beAFc91bbcA198313CFD0D1a5ecbB",
+      "0xbeE5348d07466997E566A4D7551a7C95470a0b05",
+      "0x8C8024bf5f90a06CCeD7D32BAbcCB934942c82f6",
+      "0xd1F33cFf36494975FB724bA05627107cAbf8b7E4",
+      "0x6e15276248BE70A3D1BCFe2852e75B81a9d6eAFE",
+      "0x138d049A34d20b1997f9F057b03B7b9CC97a5B9D",
+      "0x86C994904dD138bdC8462ac06EDD919ad70FE575",
+      "0x085f66D0764c632cE8c1f2a41531909BEF106C75",
+      "0x3F73De69aa3D0814907b445AFB1eEBb2D73f7a59",
+      "0x24852207a344FF730503cDf6AA3102cED14F957D",
+      "0x4a565173B1eCFB89383FAAc42eA6212114B93607",
+      "0x1F9BDB4F5c60f0da3A84fD70d8d5b6FB9feceafD",
+      "0x30b5Bb3936f15d4001b05EF3c5Bf04D46214F639",
+      "0xe4262b70dE65a3237E2602d627b1192314b35B49",
+      "0x925437EAd20D406AB091E8308324B4BD37e4f477",
+      "0x4aFBE4c3971BAc84194890Fd9D357f0622ffFaFB",
+      "0x151d45Ae4FA3CccBc5014A9Ec0b8cEAfc69D2c5F",
+      "0x0baa2b942CD8A1A758DB99f1571F4047B0A7B47b",
+      "0xdedaD6415b9408676a0301b92842287AE8E77EEB",
+      "0x9893AAFf3369CA283b2332fAc532285413E5eD65"
     ],
     "board_addresses": [
       "06546848-0841-4d5f-9915-9660e3d42e55"
     ],
     "completed_followers_tasks": 0,
     "completed_token_tasks": 0,
-    "language": "en"
+    "language": "en",
+    "followers_progress": {},
+    "token_progress": {}
   },
   "875247479": {
     "wallet_addresses": [],
     "board_addresses": [],
     "completed_followers_tasks": 0,
     "completed_token_tasks": 0,
-    "language": "ru"
+    "language": "ru",
+    "followers_progress": {},
+    "token_progress": {}
   },
   "608431912": {
     "wallet_addresses": [],
     "board_addresses": [],
     "completed_followers_tasks": 0,
     "completed_token_tasks": 0,
-    "language": "ru"
+    "language": "ru",
+    "followers_progress": {},
+    "token_progress": {}
   },
   "331659327": {
     "wallet_addresses": [
@@ -44,14 +70,18 @@
     ],
     "completed_followers_tasks": 0,
     "completed_token_tasks": 0,
-    "language": "ru"
+    "language": "ru",
+    "followers_progress": {},
+    "token_progress": {}
   },
   "7745515894": {
     "wallet_addresses": [],
     "board_addresses": [],
     "completed_followers_tasks": 0,
     "completed_token_tasks": 0,
-    "language": "ru"
+    "language": "ru",
+    "followers_progress": {},
+    "token_progress": {}
   },
   "412246241": {
     "wallet_addresses": [
@@ -60,6 +90,21 @@
     "board_addresses": [],
     "completed_followers_tasks": 0,
     "completed_token_tasks": 0,
-    "language": "ru"
+    "language": "ru",
+    "followers_progress": {},
+    "token_progress": {}
+  },
+  "12345": {
+    "wallet_addresses": [
+      "0xC7f9154a72524097B1323961F584f7047b875271",
+      "0x1234567890abcdef1234567890abcdef12345678",
+      "0xabcdef1234567890abcdef1234567890abcdef12"
+    ],
+    "board_addresses": [],
+    "completed_followers_tasks": 0,
+    "completed_token_tasks": 0,
+    "language": "ru",
+    "followers_progress": {},
+    "token_progress": {}
   }
 }

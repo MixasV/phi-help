@@ -1,11 +1,1 @@
-{
-  "235335704_0_followers": {
-    "user_id": 235335704,
-    "wallet_index": 0,
-    "wallet_address": "0xC7f9154a72524097B1323961F584f7047b875271",
-    "check_type": "followers",
-    "needed_count": 10,
-    "created_at": "2025-09-28T00:08:14.038453",
-    "last_check": "2025-09-28T00:08:14.038457"
-  }
-}
+{}
